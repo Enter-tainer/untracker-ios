@@ -7,6 +7,12 @@
 //  Safari's action menu for selected text — the iOS equivalent of Android's
 //  "select text → Untrack").
 //
+//  Note on sizing: iOS controls the height of an extension sheet and ignores
+//  `preferredContentSize`, so this controller deliberately does not try to size
+//  itself — the hosted view is pinned to all edges and fills whatever the host
+//  gives us. (Earlier attempts with `preferredContentSize` made the view occupy
+//  only part of the sheet, which left the action buttons stranded mid-panel.)
+//
 
 import SwiftUI
 import UIKit
@@ -14,50 +20,13 @@ import UniformTypeIdentifiers
 
 class UntrackerExtensionViewController: UIViewController {
     private let model = UntrackExtensionViewModel()
-
     private var hostingController: UIViewController?
-
-    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
-        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
-        preferredContentSize = CGSize(width: 0, height: Self.compactSheetHeight())
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        preferredContentSize = CGSize(width: 0, height: Self.compactSheetHeight())
-    }
-
-    /// Roughly half the screen — enough for a link plus the two actions.
-    private static func compactSheetHeight() -> CGFloat {
-        min(380, max(300, UIScreen.main.bounds.height * 0.45))
-    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         installSwiftUI()
-        preferredContentSize = CGSize(width: 0, height: sheetHeight)
         loadSharedContent()
-
-        // The host reads the preferred size after the first layout pass; set it again
-        // so a compact sheet is not replaced by the full-height default.
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.preferredContentSize = CGSize(width: 0, height: self.sheetHeight)
-        }
-    }
-
-    /// Roughly half the screen: enough for a link plus the two actions, without the
-    /// sheet swallowing the whole page.
-    private var sheetHeight: CGFloat {
-        let screenHeight = UIScreen.main.bounds.height
-        return min(380, max(300, screenHeight * 0.45))
-    }
-
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        preferredContentSize = CGSize(width: 0, height: sheetHeight)
     }
 
     // MARK: SwiftUI
@@ -70,6 +39,12 @@ class UntrackerExtensionViewController: UIViewController {
             onCancel: { [weak self] in self?.cancelExtension() }
         )
         let controller = UIHostingController(rootView: rootView)
+        // UIHostingController self-sizes by default, which froze the container at the
+        // height of the first (loading) layout and left the action buttons stranded
+        // mid-panel. Let Auto Layout drive the size instead.
+        if #available(iOS 16.0, *) {
+            controller.sizingOptions = []
+        }
         controller.view.backgroundColor = .systemBackground
         addChild(controller)
         controller.view.translatesAutoresizingMaskIntoConstraints = false
@@ -80,13 +55,6 @@ class UntrackerExtensionViewController: UIViewController {
             controller.view.topAnchor.constraint(equalTo: view.topAnchor),
             controller.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-
-        // The host derives the sheet height from this view's fitting size, not from
-        // preferredContentSize, so give the view itself a definite height.
-        let compactHeight = view.heightAnchor.constraint(equalToConstant: sheetHeight)
-        compactHeight.priority = .required
-        compactHeight.isActive = true
-        preferredContentSize = CGSize(width: 0, height: sheetHeight)
         controller.didMove(toParent: self)
         hostingController = controller
     }
@@ -104,10 +72,7 @@ class UntrackerExtensionViewController: UIViewController {
                 .compactMap { $0.attributedContentText?.string }
                 .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             if let text = text {
-                let item = NSExtensionItem()
-                let provider = NSItemProvider(object: text as NSString)
-                item.attachments = [provider]
-                model.load(from: [provider])
+                model.load(from: [NSItemProvider(object: text as NSString)])
                 return
             }
             model.load(from: [])
