@@ -40,9 +40,10 @@ class UntrackerExtensionViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        if !copiesImmediately {
-            installSwiftUI()
-        }
+        // Always install the UI: in one-tap mode it is only visible while a short link is
+        // being resolved, and closing the request discards it — but it is better than a
+        // blank sheet during a slow network redirect.
+        installSwiftUI()
         preferredContentSize = CGSize(width: 0, height: sheetHeight)
         loadSharedContent()
 
