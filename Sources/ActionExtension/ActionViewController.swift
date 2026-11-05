@@ -3,14 +3,10 @@
 //  UntrackerAction
 //
 //  Action Extension (com.apple.ui-services): appears in the share sheet's "Actions"
-//  row and in Safari's action menu. iOS presents extension sheets at a large height
-//  that the extension cannot control, so this variant does the work and closes
-//  immediately — one tap puts the clean link on the clipboard, which is the closest
-//  iOS equivalent of Android's "select text → Untrack".
+//  row and in Safari's action menu. It shows the same review panel as the Share
+//  Extension (Copy / Share), so both entries behave identically.
 //
 
 import UIKit
 
-final class ActionViewController: UntrackerExtensionViewController {
-    override var copiesImmediately: Bool { true }
-}
+final class ActionViewController: UntrackerExtensionViewController {}

@@ -15,11 +15,6 @@ import UniformTypeIdentifiers
 class UntrackerExtensionViewController: UIViewController {
     private let model = UntrackExtensionViewModel()
 
-    /// When true the extension does the work and closes immediately: tapping it in the
-    /// share sheet's Actions row copies the clean link without showing a panel. iOS
-    /// presents extension sheets large and the height cannot be controlled from the
-    /// extension, so this is the only way to offer a genuinely quick action.
-    var copiesImmediately: Bool { false }
     private var hostingController: UIViewController?
 
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
@@ -40,9 +35,6 @@ class UntrackerExtensionViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        // Always install the UI: in one-tap mode it is only visible while a short link is
-        // being resolved, and closing the request discards it — but it is better than a
-        // blank sheet during a slow network redirect.
         installSwiftUI()
         preferredContentSize = CGSize(width: 0, height: sheetHeight)
         loadSharedContent()
@@ -122,17 +114,6 @@ class UntrackerExtensionViewController: UIViewController {
             return
         }
 
-        model.onResult = { [weak self] _ in
-            guard let self = self, self.copiesImmediately else { return }
-            guard self.model.hasResult, !self.model.cleanedText.isEmpty else {
-                self.extensionContext?.cancelRequest(
-                    withError: NSError(domain: "moe.mgt.untracker.extension", code: 1))
-                return
-            }
-            UIPasteboard.general.string = self.model.cleanedText
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-        }
         model.load(from: providers)
     }
 

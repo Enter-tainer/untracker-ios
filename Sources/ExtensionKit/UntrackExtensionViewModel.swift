@@ -26,8 +26,6 @@ final class UntrackExtensionViewModel: ObservableObject {
 
     var hasResult: Bool { phase == .cleaned || phase == .unchanged }
 
-    /// Called on the main queue once loading/untracking finishes.
-    var onResult: ((Bool) -> Void)?
 
     // MARK: Loading
 
@@ -114,7 +112,6 @@ final class UntrackExtensionViewModel: ObservableObject {
             self.removedParameters = outcome.removedParameters
             self.appliedRules = outcome.appliedRuleNames
             self.phase = outcome.changed ? .cleaned : .unchanged
-            self.onResult?(outcome.changed)
             if outcome.changed {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
