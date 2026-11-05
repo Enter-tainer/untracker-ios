@@ -21,12 +21,7 @@ Untracker instead runs **per-site rules** that know what each site actually need
 - Google Search keeps only `q` / `tbm`
 
 and it can **expand short links** (`b23.tv`, `t.cn`, `amzn.to`, `xhslink.com`, …)
-by following one redirect before cleaning.
-
-If you only need generic parameter stripping, the Alternatives section below has
-several good, free, App Store-hosted options.
-
-## Features
+by following one redirect before cleaning.\n\n## Features
 
 - **Share Extension** — appear in the share sheet's app row: share a link from any
   app, get it cleaned, then **Copy** or **Share again** (both actions mirror the
@@ -138,21 +133,6 @@ The span oracle was produced by running the real androidx matcher plus
    Action Extension (Safari action menu) and paste-inside-the-app.
 4. The two rules upstream ships disabled (Bilibili BV, Old Reddit) are also disabled
    by default here, but can be switched on.
-
-## Alternatives
-
-Free and App Store-hosted; worth trying first if you want zero maintenance:
-
-- [Link Cleaner (链接净化)](https://apps.apple.com/cn/app/id6758566240) — Chinese App
-  Store, covers Weibo/Bilibili/Taobao/Douyin/Xiaohongshu and expands `t.cn` short links.
-- [Untrack Links](https://apps.apple.com/us/app/untrack-links/id6761683298) — free, MIT,
-  share-sheet actions plus “Untrack and expand”.
-- [URL Scrubber](https://apps.apple.com/us/app/url-scrubber-strip-utms/id6759811098) and
-  [Trackless Links](https://github.com/aloth/trackless-links) — strip parameters
-  automatically while browsing in Safari.
-
-What this project adds over those: the upstream rule engine itself (per-site retain
-lists, short-link expansion), editable JS rules, and a fully reproducible test suite.
 
 ## License
 
