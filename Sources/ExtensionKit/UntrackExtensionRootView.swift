@@ -18,6 +18,9 @@ struct UntrackExtensionRootView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            // The host decides the sheet height (iOS presents extension sheets large and
+            // ignores preferredContentSize), so keep the result near the header and pin the
+            // actions to the bottom.
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 14)
@@ -90,14 +93,13 @@ struct UntrackExtensionRootView: View {
                     tint: .green
                 )
 
-                ScrollView {
-                    Text(model.cleanedText)
-                        .font(.system(.callout, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("cleanedURL")
-                }
-                .frame(maxHeight: 96)
+                Text(model.cleanedText)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("cleanedURL")
                 .padding(12)
                 .background(
                     Color(uiColor: .secondarySystemBackground),
@@ -114,6 +116,21 @@ struct UntrackExtensionRootView: View {
                     Text("Rules: " + model.appliedRules.joined(separator: " · "))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                }
+                if model.originalText != model.cleanedText, !model.originalText.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Original")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(model.originalText)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("originalLink")
+                    }
+                    .padding(.top, 2)
                 }
             }
 
