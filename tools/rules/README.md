@@ -1,90 +1,70 @@
-# tools/rules — Untracker rule data + test oracles
+# Rule data, semantics and oracles
 
-Everything here is derived from the upstream Android app (`zhanghai/Untracker`, master).
+Everything in this directory is **data and verification tooling** for the rule
+engine — no third-party source code is vendored in this repository.
 
-## Deliverables (consumed by the iOS app / tests)
+| File | What it is |
+| --- | --- |
+| `builtin-rules.json` | The 27 upstream rules (`id`, `name`, `description`, `script`, `enabled`), scripts byte-identical to `BuiltinRuleList.kt` |
+| `test-cases.json` | 78 end-to-end cases (`input` → `expected`), expectations derived by hand and cross-checked against the real rule scripts |
+| `findurls-cases.json` | 60 golden link-detection cases (52 spans), produced by running the **real** `androidx` matcher + `java.net.URI.normalize()` |
+| `SEMANTICS.md` | Exact semantics of the JS `$` API and of `findUrls()`, including the upstream quirks this port must reproduce |
+| `verify-rules.mjs` | Byte-compares the scripts in `builtin-rules.json` with upstream `BuiltinRuleList.kt` |
+| `verify-findurls.mjs` | Diffs an iOS span export against `findurls-cases.json` |
+| `validate-testcases.mjs` | Schema check for `test-cases.json` |
+| `extract-rules.mjs` | Extracts `BuiltinRuleList.kt` → `builtin-rules.json` |
 
-| file | what it is |
-|---|---|
-| `builtin-rules.json` | The 27 built-in rules, upstream order: `{id, name, description, script, enabled}`. `script` is exactly the text upstream interpolates as `(function(url) { <script> })(url)` — i.e. the Kotlin `"""` raw string after `String.trimIndent()`. 25 enabled; **Bilibili BV** and **Old Reddit** are `enabled: false`. |
-| `test-cases.json` | 78 oracle cases `{name, input, expected, ruleIds?, note}`: the exact text `untrack(input)` must return. `ruleIds` (optional) = run only those rules, in upstream order, **enabling them even if `enabled: false`** (that is how the two disabled rules are covered). Without `ruleIds`, run all enabled rules. No case uses `fetch()` (network). |
-| `findurls-cases.json` | 60 golden link-detection cases `{input, spans: [{location, length, hasScheme, url, match}], skipped?, note}` — the spans `findUrls()` must produce for each `input`, so the iOS `findURLs` can be diffed directly (text in, spans out) without running the rules. |
-| `SEMANTICS.md` | Precise spec of `$` (`matches`, getters/setters, `remove`/`retainQueryParameters`, `fetch`), of `findUrls()`, and of the span oracle. Read this before implementing. |
-| `verify-findurls.mjs` | Diffs an iOS-produced span file against `findurls-cases.json`. |
+The app bundles copies of `builtin-rules.json`, `test-cases.json` and
+`findurls-cases.json` (as `Resources/*.json`) for the on-device self test.
 
-`Resources/BuiltinRules.json` in the app bundle is a copy of `builtin-rules.json`.
+## Verifying
 
-### Span index unit (important)
+```bash
+# 1. rules are byte-identical to upstream
+node tools/rules/verify-rules.mjs <path-to>/BuiltinRuleList.kt tools/rules/builtin-rules.json
 
-`findurls-cases.json` offsets are **UTF-16 code units**: `location`/`length` are Java String /
-`Matcher.start()/end()` offsets, which are exactly `NSString`/`NSRange` offsets, so they compare 1:1
-with an iOS implementation. They are **not** Unicode scalar, `Character`/grapheme or UTF-8 byte
-offsets. A character outside the BMP (an emoji, U+1F600) counts as **2**; see the
-`emoji-index-check` case (`location: 3` after `"😀 "` = 2 + 1 units).
+# 2. link detection matches the Android matcher
+#    (export the spans from the app: launch with --run-selftest, then pull Documents/findurls-actual.json)
+node tools/rules/verify-findurls.mjs --actual findurls-actual.json
 
-The iOS side should emit, for each case it runs:
-
-```json
-{"input": "…", "spans": [{"location": 6, "length": 36, "hasScheme": true, "url": "https://…"}]}
+# 3. case file is well formed
+node tools/rules/validate-testcases.mjs
 ```
 
-(an array of those, `{"cases": [...]}`, or a single object are all accepted).
+`verify-findurls.mjs` matches cases by `name`, then by exact `input`, and compares
+`location` / `length` / `hasScheme` / `url`. Offsets are **UTF-16 code units**
+(Java `Matcher.start/end` == `NSString`/`NSRange`), so a Python or Swift
+`Character`-based validator will mis-count the two emoji cases.
 
-## Diffing the iOS implementation
+## Regenerating (needs the upstream projects)
 
-```sh
-node verify-findurls.mjs --actual ios-spans.json          # per-case diffs, exit 1 on mismatch
-node verify-findurls.mjs --actual ios-spans.json --verbose
-node verify-findurls.mjs --actual ios-spans.json --json   # machine-readable summary for CI
-node verify-findurls.mjs --self-check                     # validate the golden file itself
+These files were generated from external sources that are deliberately **not**
+committed here:
+
+- `builtin-rules.json` ← `BuiltinRuleList.kt` from
+  [zhanghai/Untracker](https://github.com/zhanghai/Untracker) (Apache-2.0)
+- `findurls-cases.json` ← the `AUTOLINK_WEB_URL` pattern and `findUrls()` logic
+  from that same project, plus `PatternsCompat` from androidx.core and a JDK
+- `test-cases.json` ← hand-derived, then cross-checked by executing the real rule
+  scripts in Node over spans produced by the real matcher
+
+To regenerate, clone those repositories next to a scratch directory, then:
+
+```bash
+git clone --depth 1 https://github.com/zhanghai/Untracker /tmp/untracker
+node tools/rules/extract-rules.mjs /tmp/untracker/app/src/main/java/me/zhanghai/android/untracker/BuiltinRuleList.kt \
+     tools/rules/builtin-rules.json
+node tools/rules/verify-rules.mjs /tmp/untracker/app/src/main/java/me/zhanghai/android/untracker/BuiltinRuleList.kt \
+     tools/rules/builtin-rules.json
 ```
 
-Cases are matched by `name` when present, else by exact `input`. Only `location`, `length`,
-`hasScheme` and `url` are compared (`match` is a human-readable extra); `hasScheme` may be omitted
-in the actual file. Extra cases reported by the actual file are warned about and fail the run.
+For the span oracle you additionally need `androidx.core`'s `PatternsCompat.java`
+(or the AOSP `Uri`/`UriCodec` for the guard-rail checks) and a JDK; see
+`SEMANTICS.md` for the exact behaviour that must be reproduced.
 
-## Provenance / how the data was produced
+`tools/gen-autolink.py` regenerates `Sources/Kit/AutolinkWebURL.swift` from a local
+copy of `PatternsCompat.java`:
 
-* `extract-rules.mjs` — parses `_ref/BuiltinRuleList.kt` and writes `builtin-rules.json`
-  (re-implements Kotlin `trimIndent()`; the raw strings are literal).
-* `verify-rules.mjs` — re-extracts the raw strings independently and asserts, for every rule:
-  byte-exact script, verbatim occurrence in the `.kt` with block indentation restored, unique
-  UUID, field shape, and rule count == number of `Rule(` tokens.
-* `make-findurls.mjs` + `_ref/FindUrlsDump.java` — generate `findurls-cases.json` from the **real**
-  `androidx.core.util.PatternsCompat.AUTOLINK_WEB_URL` regex object (sliced verbatim out of
-  `_ref/PatternsCompat.java`), a transcription of `Untracker.findUrls()` and the real
-  `java.net.URI.normalize()`, all executed on a JVM. Not a JS/TS reimplementation of the regex.
-* `_ref/` — copies of the upstream Kotlin sources, the AOSP `android.net.Uri`/`UriCodec`,
-  `androidx.core.util.PatternsCompat`, the case source `findurls-cases.src.json`, and the Java
-  probes. Development reference only.
-
-## Regenerating / re-verifying everything
-
-```sh
-# rules + rule-behaviour oracle
-node extract-rules.mjs && node verify-rules.mjs
-node validate-testcases.mjs
-node make-spans.mjs
-java -cp _ref Probe _ref/case-inputs.txt _ref/case-spans.txt   # needs a JDK
-node run-node.js            # prints 78/78 agree
-
-# golden link-detection spans
-node make-findurls.mjs --gen
-javac -encoding UTF-8 -d _ref _ref/FindUrlsDump.java
-java -cp _ref FindUrlsDump _ref/findurls-inputs.tsv _ref/findurls-spans.tsv
-node make-findurls.mjs --assemble
-node verify-findurls.mjs --self-check
-```
-
-`expected` values in `test-cases.json` were derived **by hand** from the rule scripts and the
-`Uri`/`$` semantics, not produced by `run-node.js`; the harness is only a consistency check
-(and shares no code with the app). `findurls-cases.json` is generated, not hand-written — it *is*
-the Android behaviour.
-
-## Validating the JSON
-
-```sh
-python3 -m json.tool builtin-rules.json > /dev/null
-python3 -m json.tool test-cases.json > /dev/null
-python3 -m json.tool findurls-cases.json > /dev/null
+```bash
+python3 tools/gen-autolink.py /tmp/androidx/PatternsCompat.java Sources/Kit/AutolinkWebURL.swift
 ```

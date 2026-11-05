@@ -5,7 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
-const srcPath = process.argv[2] || path.join(here, '_ref', 'BuiltinRuleList.kt');
+const srcPath = process.argv[2];
+if (!srcPath) {
+  console.error('usage: node ' + path.basename(process.argv[1]) + ' <path to upstream BuiltinRuleList.kt> [output.json]');
+  process.exit(2);
+}
 const outPath = process.argv[3] || path.join(here, 'builtin-rules.json');
 
 let src = fs.readFileSync(srcPath, 'utf8');
