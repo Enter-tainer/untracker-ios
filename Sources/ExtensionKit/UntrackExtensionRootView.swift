@@ -25,8 +25,8 @@ struct UntrackExtensionRootView: View {
             actions
         }
         .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
         .background(Color(uiColor: .systemBackground))
     }
 
@@ -97,7 +97,7 @@ struct UntrackExtensionRootView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("cleanedURL")
                 }
-                .frame(maxHeight: 120)
+                .frame(maxHeight: 96)
                 .padding(12)
                 .background(
                     Color(uiColor: .secondarySystemBackground),

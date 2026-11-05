@@ -58,6 +58,8 @@ targets:
       - path: Sources/Kit
       - path: Sources/ExtensionKit
       - path: Sources/ShareExtension
+      - path: Sources/ShareExtension/Resources
+        buildPhase: resources
       - path: Resources/BuiltinRules.json
         buildPhase: resources
     settings:
@@ -77,6 +79,8 @@ targets:
       - path: Sources/Kit
       - path: Sources/ExtensionKit
       - path: Sources/ActionExtension
+      - path: Sources/ActionExtension/Resources
+        buildPhase: resources
       - path: Resources/BuiltinRules.json
         buildPhase: resources
     settings:

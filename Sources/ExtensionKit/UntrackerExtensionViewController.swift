@@ -23,11 +23,16 @@ class UntrackerExtensionViewController: UIViewController {
         loadSharedContent()
     }
 
+    /// Roughly half the screen: enough for a link plus the two actions, without the
+    /// sheet swallowing the whole page.
+    private var sheetHeight: CGFloat {
+        let screenHeight = UIScreen.main.bounds.height
+        return min(380, max(300, screenHeight * 0.45))
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // Present as a compact sheet; the SwiftUI content fits without scrolling in
-        // the common single-link case.
-        preferredContentSize = CGSize(width: 0, height: 400)
+        preferredContentSize = CGSize(width: 0, height: sheetHeight)
     }
 
     // MARK: SwiftUI
@@ -44,12 +49,15 @@ class UntrackerExtensionViewController: UIViewController {
         addChild(controller)
         controller.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(controller.view)
+        // Pin an explicit height: a hosted SwiftUI view otherwise reports an
+        // intrinsic size that makes the share sheet grow towards full screen.
         NSLayoutConstraint.activate([
             controller.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             controller.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controller.view.topAnchor.constraint(equalTo: view.topAnchor),
-            controller.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            controller.view.heightAnchor.constraint(equalToConstant: sheetHeight)
         ])
+        preferredContentSize = CGSize(width: 0, height: sheetHeight)
         controller.didMove(toParent: self)
         hostingController = controller
     }
