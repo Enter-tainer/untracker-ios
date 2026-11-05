@@ -1,0 +1,14 @@
+Untracker for iOS
+Copyright 2026 The Untracker iOS contributors
+
+This product includes software developed as part of zhanghai/Untracker
+(https://github.com/zhanghai/Untracker), Copyright 2023 Google LLC,
+licensed under the Apache License, Version 2.0.
+
+The bundled rule set (Resources/BuiltinRules.json) is generated from
+BuiltinRuleList.kt in that project and the JavaScript evaluation semantics follow
+its `Untracker.kt`. The link-detection pattern in Sources/Kit/AutolinkWebURL.swift
+is generated from androidx.core's PatternsCompat.AUTOLINK_WEB_URL
+(Copyright The Android Open Source Project, Apache License 2.0).
+
+The app icons under Resources/ are original artwork for this project.

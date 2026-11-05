@@ -1,0 +1,191 @@
+[
+  {
+    "id": "0db0b0dc-f46f-40a4-8c0d-8a575a09f2a3",
+    "name": "Common redirections",
+    "description": "Remove common redirections",
+    "script": "if ($.matches(url, 'www\\\\.douban\\\\.com', '/link2/', '.*\\\\burl=.+')) {\n    return $.getQueryParameter(url, 'url');\n} else if ($.matches(url, 'search\\\\.app', '/', '.*\\\\blink=.+')) {\n    return $.getQueryParameter(url, 'link');\n} else if ($.matches(url, 'link\\\\.zhihu\\\\.com', '/', '.*\\\\btarget=.+')) {\n    return $.getQueryParameter(url, 'target');\n}",
+    "enabled": true
+  },
+  {
+    "id": "a925a9f0-84bb-46eb-bea2-1bded576d8c9",
+    "name": "Common short links",
+    "description": "Expand common tracking short links",
+    "script": "while (true) {\n    if ($.matches(url, '163cn\\\\.tv|a\\\\.co|amzn\\\\.(asia|eu|to)|b23\\\\.tv|bili2233\\\\.cn|v\\\\.douyin\\\\.com|dwz\\\\.cn|u\\\\.jd\\\\.com|v\\\\.kuaishou\\\\.com|pin\\\\.it|share\\\\.google|t\\\\.cn|vm\\\\.tiktok\\\\.com|url\\\\.cn|xhslink\\\\.(cn|com)')\n            || $.matches(url, 'm\\\\.gifshow\\\\.com', '/s/.+')\n            || $.matches(url, 'www\\\\.google\\\\.com', '/share\\\\.google')\n            || $.matches(url, 'www\\\\.instagram\\\\.com', '/share/reel/.+')\n            || $.matches(url, 'api\\\\.pinterest\\\\.com', '/url_shortener/.+')\n            || $.matches(url, 'www\\\\.reddit\\\\.com', '/r/[^/]+/s/.+')\n            || $.matches(url, 'search.app', '/.+')) {\n        const response = $.fetch(url, { redirect: 'manual' });\n        if ([301, 302, 303, 307, 308].includes(response.status)) {\n            const location = response.headers.find(it => it[0].toLowerCase() === 'location')?.[1];\n            if (location) {\n                url = location;\n                continue;\n            }\n        }\n    } else if ($.matches(url, '([cm]\\\\.)?tb\\\\.cn')) {\n        const response = $.fetch(url);\n        const groups = /var url = '([^']+)';/.exec(response.body);\n        if (groups) {\n            url = groups[1];\n            continue;\n        }\n    }\n    break;\n}\nreturn url;",
+    "enabled": true
+  },
+  {
+    "id": "19d74b86-5ac0-4218-8ec8-ee89e4d237f1",
+    "name": "Common analytics",
+    "description": "Remove tracking for common analytics",
+    "script": "return $.removeQueryParameters(url, '[isu]tm_.*|ref');",
+    "enabled": true
+  },
+  {
+    "id": "87af5849-1e81-42bd-984e-e30a1ec08db4",
+    "name": "Common ads",
+    "description": "Remove tracking for common ads",
+    "script": "return $.removeQueryParameters(url, '(fb|g|tt|wicked|y)cl(id|source|src)|[gw]braid');",
+    "enabled": true
+  },
+  {
+    "id": "3805dd66-b341-4da3-b5ba-f3acc69ed189",
+    "name": "Amazon",
+    "description": "Remove tracking for Amazon",
+    "script": "if ($.matches(url, '.+\\\\.amazon\\\\.(ae|ca|cn|co\\\\.jp|co\\\\.uk|com|com\\\\.au|com\\\\.be|com\\\\.br|com\\\\.mx|com\\\\.tr|de|eg|es|fr|in|it|nl|pl|sa|se|sg)')) {\n    url = $.setEncodedQuery(url, null);\n    const path = $.getEncodedPath(url);\n    const newPath = path.replace(/(?<=\\/)ref=.+$/i, '');\n    if (path !== newPath) {\n        url = $.setEncodedPath(url, newPath);\n    }\n    return url;\n}",
+    "enabled": true
+  },
+  {
+    "id": "7edf803f-c165-46ef-b4d1-b8cbc6b5cb65",
+    "name": "Bilibili",
+    "description": "Remove tracking for Bilibili",
+    "script": "if ($.matches(url, '.+\\\\.bilibili\\\\.com')) {\n    url = $.retainQueryParameters(url, 'business_id|business_type|itemsId|lottery_id|p|start_progress|t');\n    return $.removeQueryParameters(url, 'p', '1');\n}",
+    "enabled": true
+  },
+  {
+    "id": "db094a08-e3c4-4bd9-aa98-16df86237f6d",
+    "name": "Bilibili BV",
+    "description": "Convert BV code for Bilibili",
+    "script": "if ($.matches(url, '.+\\\\.bilibili\\\\.com', '/video/BV[0-9A-Za-z]+/?')) {\n    const bvPath = $.getEncodedPath(url);\n    const bvCode = /^\\/video\\/BV([0-9A-Za-z]+)\\/?/.exec(bvPath)[1];\n    function bvToAv(bv) {\n        const XOR_CODE = 23442827791579n;\n        const MASK_CODE = 2251799813685247n;\n        const BASE = 58n;\n        const data = 'FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf';\n        const bvArray = Array.from(bv);\n        [bvArray[1], bvArray[7]] = [bvArray[7], bvArray[1]];\n        [bvArray[2], bvArray[5]] = [bvArray[5], bvArray[2]];\n        bvArray.splice(0, 1);\n        const temp = bvArray.reduce((accumulator, bvChar) => accumulator * BASE + BigInt(data.indexOf(bvChar)), 0n);\n        return Number((temp & MASK_CODE) ^ XOR_CODE);\n    }\n    const avCode = bvToAv(bvCode);\n    const avPath = '/video/av' + avCode + '/';\n    return $.setEncodedPath(url, avPath);\n}",
+    "enabled": false
+  },
+  {
+    "id": "ad21dada-9f09-4adf-9db2-d1575ca8b4a4",
+    "name": "Douban",
+    "description": "Remove tracking for Douban",
+    "script": "if ($.matches(url, '.+\\\\.douban\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "c112da1e-384e-42e2-b110-ce6d8edbfe7a",
+    "name": "Douyin",
+    "description": "Remove tracking for Douyin",
+    "script": "if ($.matches(url, '.+\\\\.(douyin|iesdouyin)\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "926090a8-a98a-4168-b6a1-b6b801c76955",
+    "name": "Google Search",
+    "description": "Remove tracking for Google Search",
+    "script": "if ($.matches(url, 'www\\\\.google\\\\.com', '/search')) {\n    return $.retainQueryParameters(url, 'q|tbm');\n}",
+    "enabled": true
+  },
+  {
+    "id": "bcd9fcb8-bf1c-41f8-b18d-b248507e43c7",
+    "name": "Instagram",
+    "description": "Remove tracking for Instagram",
+    "script": "if ($.matches(url, 'www\\\\.instagram\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "c68c4cbf-9ae5-41f6-89ba-6e3f31ffb6a2",
+    "name": "JD.com",
+    "description": "Remove tracking for JD.com",
+    "script": "if ($.matches(url, '.+\\\\.jd\\\\.com')) {\n    return $.retainQueryParameters(url, 'id|shopId|skuIds|suitId|wareId');\n}",
+    "enabled": true
+  },
+  {
+    "id": "1d0c3aae-c456-4352-972a-8b0b0f6e36c1",
+    "name": "Kuaishou",
+    "description": "Remove tracking for Kuaishou",
+    "script": "if ($.matches(url, '(.+\\\\.)?m\\\\.chenzhongtech\\\\.com|m\\\\.gifshow\\\\.com|.+\\\\.kuaishou\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "c722500a-17c8-462a-8a74-0c15fefe1b3e",
+    "name": "NetEase Cloud Music",
+    "description": "Remove tracking for NetEase Cloud Music",
+    "script": "if ($.matches(url, 'y\\\\.music\\\\.163\\\\.com')) {\n    return $.retainQueryParameters(url, 'id');\n}",
+    "enabled": true
+  },
+  {
+    "id": "465d579e-bc3b-4c5b-bac3-9b84c67c7554",
+    "name": "Netflix",
+    "description": "Remove tracking for Netflix",
+    "script": "if ($.matches(url, 'www\\\\.netflix\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "21065dad-2c4c-4431-acd7-32825e831c32",
+    "name": "Pinterest",
+    "description": "Remove tracking for Pinterest",
+    "script": "if ($.matches(url, 'www\\\\.pinterest\\\\.com')) {\n    url = $.setEncodedQuery(url, null);\n    const path = $.getEncodedPath(url);\n    const newPath = path.replace(/(?<=\\/)sent\\/?$/i, '');\n    if (path !== newPath) {\n        url = $.setEncodedPath(url, newPath);\n    }\n    return url;\n}",
+    "enabled": true
+  },
+  {
+    "id": "67035e8c-9418-47e7-9f62-56cd30666772",
+    "name": "Reddit",
+    "description": "Remove tracking for Reddit",
+    "script": "if ($.matches(url, '(.+\\\\.)?reddit\\\\.com')) {\n    return $.retainQueryParameters(url, 'context');\n}",
+    "enabled": true
+  },
+  {
+    "id": "55662cf5-b43e-491a-b72b-adc1111b8583",
+    "name": "Old Reddit",
+    "description": "Use old Reddit instead of new Reddit",
+    "script": "if ($.matches(url, '(www\\\\.)?reddit\\\\.com')) {\n    return $.setHost(url, 'old.reddit.com');\n} else if ($.matches(url, 'v\\\\.redd\\\\.it', '/[^/]+/?')) {\n    return $.setEncodedPath($.setHost(url, 'old.reddit.com'), '/video' + $.getEncodedPath(url));\n}",
+    "enabled": false
+  },
+  {
+    "id": "84c837db-f1c0-4738-b0ea-0f3d091885d7",
+    "name": "rednote",
+    "description": "Remove tracking for rednote",
+    "script": "if ($.matches(url, '.+\\\\.xiaohongshu\\\\.com')) {\n    return $.retainQueryParameters(url, 'xsec_token');\n}",
+    "enabled": true
+  },
+  {
+    "id": "4244faaa-b50e-47f1-87a5-ac994c32b94f",
+    "name": "SMZDM",
+    "description": "Remove tracking for SMZDM",
+    "script": "if ($.matches(url, '.+\\\\.smzdm\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "8cbda6f2-d71d-4ee3-8ee0-05b245861c0d",
+    "name": "Spotify",
+    "description": "Remove tracking for Spotify",
+    "script": "if ($.matches(url, '(open\\\\.)?spotify\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "5ed9b3ef-f4de-44c8-bd34-5c8da6e330af",
+    "name": "Stack Exchange",
+    "description": "Remove tracking for Stack Exchange sites",
+    "script": "if ($.matches(url, '(.+\\\\.stackexchange|askubuntu|serverfault|stackoverflow|superuser)\\\\.com', '/[aq]/[0-9]+/[0-9]+/?')) {\n    return $.setEncodedPath(url, $.getEncodedPath(url).replace(/\\/[0-9]+\\/?$/i, ''));\n}",
+    "enabled": true
+  },
+  {
+    "id": "9cb803b3-ed57-46ad-b604-8adb8c515c07",
+    "name": "Taobao",
+    "description": "Remove tracking for Taobao (and Tmall)",
+    "script": "if ($.matches(url, '.+\\\\.(taobao|tmall)\\\\.com')) {\n    return $.retainQueryParameters(url, 'id');\n}",
+    "enabled": true
+  },
+  {
+    "id": "2bce062c-7336-4ab9-bfde-7a1f9b686365",
+    "name": "Threads",
+    "description": "Remove tracking for Threads",
+    "script": "if ($.matches(url, 'www\\\\.threads\\\\.com')) {\n    return $.removeQueryParameters(url, 'slof|xmt');\n}",
+    "enabled": true
+  },
+  {
+    "id": "8420b788-c6ee-46a6-ab3b-da04d6299beb",
+    "name": "TikTok",
+    "description": "Remove tracking for TikTok",
+    "script": "if ($.matches(url, '.+\\\\.tiktok\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "7a6a2ddb-a0a4-43fe-a97f-7cb74cd29ad5",
+    "name": "X",
+    "description": "Remove tracking for X (formerly Twitter)",
+    "script": "if ($.matches(url, '(twitter|x)\\\\.com')) {\n    return $.setEncodedQuery(url, null);\n}",
+    "enabled": true
+  },
+  {
+    "id": "88a68140-7653-4923-991d-19d1a98cd5e3",
+    "name": "Youtube",
+    "description": "Remove tracking for Youtube",
+    "script": "if ($.matches(url, 'youtu\\\\.be|((music|www)\\\\.)?youtube\\\\.com')) {\n    return $.retainQueryParameters(url, 'index|list|t|v');\n}",
+    "enabled": true
+  }
+]

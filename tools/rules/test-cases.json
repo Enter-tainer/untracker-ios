@@ -1,0 +1,478 @@
+[
+  {
+    "name": "no-url-plain-text",
+    "input": "just a sentence with no links at all",
+    "expected": "just a sentence with no links at all",
+    "note": "findUrls() finds nothing, so untrack() returns the text unchanged without running any rule."
+  },
+  {
+    "name": "no-url-email-address",
+    "input": "contact user@example.com for details",
+    "expected": "contact user@example.com for details",
+    "note": "AUTOLINK_WEB_URL matches only 'example.com' here, and Linkify.sUrlMatchFilter rejects a match immediately preceded by '@', so no URL is untracked."
+  },
+  {
+    "name": "no-change-no-query",
+    "input": "https://example.com/path/to/page",
+    "expected": "https://example.com/path/to/page",
+    "note": "Common analytics/ads still run and rebuild the query, but there is none, so the URI is byte-identical."
+  },
+  {
+    "name": "no-change-clean-query",
+    "input": "https://example.com/search?q=hello&page=2",
+    "expected": "https://example.com/search?q=hello&page=2",
+    "note": "No key matches '[isu]tm_.*|ref' or the ads pattern; decode+re-encode is the identity for already-canonical values."
+  },
+  {
+    "name": "no-change-root-path",
+    "input": "https://example.com/",
+    "expected": "https://example.com/",
+    "note": "Empty query: clearQuery() then nothing appended leaves no '?'."
+  },
+  {
+    "name": "no-change-schemeless-bare-host",
+    "input": "example.com/path",
+    "expected": "example.com/path",
+    "note": "No scheme, so 'http://' is prepended for processing and removePrefix(\"http://\") strips it again on the way out."
+  },
+  {
+    "name": "no-change-ftp-skipped",
+    "input": "ftp://example.com/file?utm_source=1",
+    "expected": "ftp://example.com/file?utm_source=1",
+    "note": "AUTOLINK_WEB_URL has no ftp:// branch and the protocol-less branch excludes matches preceded by '://', so nothing matches at all."
+  },
+  {
+    "name": "no-change-rtsp-skipped",
+    "input": "rtsp://example.com/live?utm_source=1",
+    "expected": "rtsp://example.com/live?utm_source=1",
+    "note": "rtsp:// does match AUTOLINK_WEB_URL, but findUrls() drops matches fully matching '(rtsp|ftp)://.*'."
+  },
+  {
+    "name": "no-change-www-twitter-host-anchoring",
+    "input": "https://www.twitter.com/user/status/1?s=20",
+    "expected": "https://www.twitter.com/user/status/1?s=20",
+    "ruleIds": ["7a6a2ddb-a0a4-43fe-a97f-7cb74cd29ad5"],
+    "note": "The X rule's host pattern '(twitter|x)\\.com' is a FULL match, so 'www.twitter.com' does not match and the query survives (only the analytics/ads rebuild happens, which is a no-op here)."
+  },
+  {
+    "name": "no-change-bilibili-bare-host",
+    "input": "https://bilibili.com/video/BV17x411w7KC",
+    "expected": "https://bilibili.com/video/BV17x411w7KC",
+    "note": "'.+\\.bilibili\\.com' requires at least one label plus a dot, so the bare apex host is not matched by the Bilibili rules."
+  },
+  {
+    "name": "no-change-amazon-apex-host",
+    "input": "https://amazon.com/dp/B08N5WRWNW/ref=xyz",
+    "expected": "https://amazon.com/dp/B08N5WRWNW/ref=xyz",
+    "note": "Amazon's host pattern '.+\\.amazon\\.(...)' does not match the apex host, so the /ref= path is left alone."
+  },
+  {
+    "name": "no-change-youtube-clean-params",
+    "input": "https://www.youtube.com/watch?v=abc123&t=30",
+    "expected": "https://www.youtube.com/watch?v=abc123&t=30",
+    "note": "retainQueryParameters('index|list|t|v') keeps both keys in their original order."
+  },
+  {
+    "name": "no-change-google-search-clean",
+    "input": "https://www.google.com/search?q=hello",
+    "expected": "https://www.google.com/search?q=hello",
+    "note": "q is retained by the Google rule, so nothing is removed."
+  },
+  {
+    "name": "analytics-and-ads-multi-param",
+    "input": "https://example.com/page?utm_source=news&fbclid=abc&id=42",
+    "expected": "https://example.com/page?id=42",
+    "note": "Common analytics removes utm_source (pattern '[isu]tm_.*|ref'); Common ads then removes fbclid, leaving id. Rules run in order and each rebuild is cumulative."
+  },
+  {
+    "name": "analytics-removes-ref",
+    "input": "https://example.com/page?ref=home&id=7",
+    "expected": "https://example.com/page?id=7",
+    "note": "'ref' is removed by the analytics rule (full-match key regex)."
+  },
+  {
+    "name": "ads-removes-gclid-wbraid",
+    "input": "https://example.com/x?gclid=abc&wbraid=z&keep=1",
+    "expected": "https://example.com/x?keep=1",
+    "note": "'(fb|g|tt|wicked|y)cl(id|source|src)|[gw]braid' removes gclid and wbraid; keep is untouched."
+  },
+  {
+    "name": "only-tracking-params-query-dropped",
+    "input": "https://example.com/x?utm_medium=email&ref=feed",
+    "expected": "https://example.com/x",
+    "note": "All parameters are removed, so the rebuilt URI has no query component at all and the '?' disappears."
+  },
+  {
+    "name": "multi-param-order-preserved",
+    "input": "https://example.com/x?b=2&utm_source=a&a=1&fbclid=f",
+    "expected": "https://example.com/x?b=2&a=1",
+    "note": "Removal preserves the relative order of surviving parameters (analytics drops utm_source, then ads drops fbclid)."
+  },
+  {
+    "name": "literal-plus-becomes-percent2B",
+    "input": "https://example.com/x?q=a+b",
+    "expected": "https://example.com/x?q=a%2Bb",
+    "note": "removeQueryParameters uses Uri.decode with convertPlus=false, so a literal '+' decodes to '+' and Uri.encode then writes '%2B' ('+' is not in the unreserved set '_-!.~\\'()*')."
+  },
+  {
+    "name": "percent2B-roundtrips",
+    "input": "https://example.com/x?q=a%2Bb",
+    "expected": "https://example.com/x?q=a%2Bb",
+    "note": "A pre-encoded %2B decodes to '+' and re-encodes to %2B, so this is a no-op - unlike case 'literal-plus-becomes-percent2B'."
+  },
+  {
+    "name": "percent20-roundtrips",
+    "input": "https://example.com/x?q=a%20b",
+    "expected": "https://example.com/x?q=a%20b",
+    "note": "'%20' decodes to a space and Uri.encode writes a space back as '%20' (never as '+')."
+  },
+  {
+    "name": "lowercase-hex-normalised",
+    "input": "https://example.com/x?q=%e4%b8%ad",
+    "expected": "https://example.com/x?q=%E4%B8%AD",
+    "note": "Escapes are decoded to UTF-8 and re-encoded with uppercase hex digits."
+  },
+  {
+    "name": "encoded-unreserved-char-decoded",
+    "input": "https://example.com/x?q=%41",
+    "expected": "https://example.com/x?q=A",
+    "note": "'%41' decodes to 'A', which is unreserved, so it is written back literally."
+  },
+  {
+    "name": "encoded-parens-decoded",
+    "input": "https://example.com/x?q=%28a%29",
+    "expected": "https://example.com/x?q=(a)",
+    "note": "Parentheses are in Uri.encode's allowed set '_-!.~\\'()*', so %28/%29 become literal '(' and ')'."
+  },
+  {
+    "name": "unicode-percent-encoded-decoded",
+    "input": "https://example.com/s?q=%E4%B8%AD%E6%96%87&utm_source=x",
+    "expected": "https://example.com/s?q=%E4%B8%AD%E6%96%87",
+    "note": "CJK is decoded to characters and re-encoded as UTF-8 percent escapes; utm_source is removed."
+  },
+  {
+    "name": "unicode-raw-cjk-encoded",
+    "input": "https://example.com/s?q=中文&utm_source=x",
+    "expected": "https://example.com/s?q=%E4%B8%AD%E6%96%87",
+    "note": "Raw non-ASCII in the query survives findUrls() (UCS_CHAR includes CJK) and java.net.URI.normalize(); the query rebuild then percent-encodes it."
+  },
+  {
+    "name": "duplicate-keys-both-kept",
+    "input": "https://example.com/x?id=1&id=2",
+    "expected": "https://example.com/x?id=1&id=2",
+    "note": "The parameter walker is a list, not a map, so duplicate keys are kept in order."
+  },
+  {
+    "name": "empty-query-becomes-equals",
+    "input": "https://example.com/x?",
+    "expected": "https://example.com/x?=",
+    "note": "encodedQuery is \"\" (not null) for a bare '?'; the walker yields one (\"\",\"\") pair which is not removed, and appendQueryParameter emits \"=\"."
+  },
+  {
+    "name": "bare-key-gains-equals",
+    "input": "https://example.com/x?a",
+    "expected": "https://example.com/x?a=",
+    "note": "A parameter without '=' yields value \"\" and is rebuilt as 'a='."
+  },
+  {
+    "name": "key-with-empty-value-unchanged",
+    "input": "https://example.com/x?a=",
+    "expected": "https://example.com/x?a=",
+    "note": "'a=' also yields value \"\" and is rebuilt identically."
+  },
+  {
+    "name": "trailing-ampersand-produces-empty-pair",
+    "input": "https://example.com/x?a=1&",
+    "expected": "https://example.com/x?a=1&=",
+    "note": "The final segment after '&' is processed as a (\"\",\"\") pair, which is retained and rebuilt as '&='."
+  },
+  {
+    "name": "douban-clears-query-keeps-fragment",
+    "input": "https://www.douban.com/subject/123/?from=timeline#comments",
+    "expected": "https://www.douban.com/subject/123/#comments",
+    "note": "setEncodedQuery(url, null) drops the query component but leaves the fragment untouched."
+  },
+  {
+    "name": "dot-segments-normalised",
+    "input": "https://example.com/a/./b/../c?utm_source=x",
+    "expected": "https://example.com/a/c",
+    "note": "findUrls() applies java.net.URI.normalize() before any rule runs, then utm_source is removed."
+  },
+  {
+    "name": "host-case-preserved",
+    "input": "https://WWW.DOUBAN.COM/subject/123?a=1",
+    "expected": "https://WWW.DOUBAN.COM/subject/123",
+    "note": "matches() is case-insensitive, but Uri keeps the original authority bytes, so the host case survives the rebuild."
+  },
+  {
+    "name": "scheme-case-preserved",
+    "input": "HTTPS://WWW.DOUBAN.COM/subject/123?a=1",
+    "expected": "HTTPS://WWW.DOUBAN.COM/subject/123",
+    "note": "findUrls() accepts https?:// case-insensitively and Uri keeps the scheme as given; the query is then cleared."
+  },
+  {
+    "name": "two-urls-in-prose",
+    "input": "first https://a.example.com/x?utm_source=1 and second https://b.example.com/y?utm_source=2 end",
+    "expected": "first https://a.example.com/x and second https://b.example.com/y end",
+    "note": "Every detected URL is untracked in place; replacements are applied from the end of the text so earlier offsets stay valid."
+  },
+  {
+    "name": "one-url-in-prose",
+    "input": "Check this link: https://example.com/a?utm_source=x thanks",
+    "expected": "Check this link: https://example.com/a thanks",
+    "note": "Only the URL span is replaced; the surrounding prose is preserved."
+  },
+  {
+    "name": "redirect-douban-link2",
+    "input": "https://www.douban.com/link2/?url=https%3A%2F%2Fexample.com%2Fp%3Fa%3D1",
+    "expected": "https://example.com/p?a=1",
+    "note": "Common redirections matches host+path+both \".*\\burl=.+\", then RETURNS getQueryParameter('url') as the new URL text (fully decoded) instead of modifying the URI."
+  },
+  {
+    "name": "redirect-douban-link2-schemeless-input",
+    "input": "www.douban.com/link2/?url=https%3A%2F%2Fexample.com%2Fp%3Fa%3D1",
+    "expected": "https://example.com/p?a=1",
+    "note": "No scheme in the text: 'http://' is added for processing, but the rule returns an https:// URL so removePrefix(\"http://\") changes nothing - the output gains a scheme."
+  },
+  {
+    "name": "redirect-zhihu-link",
+    "input": "https://link.zhihu.com/?target=https%3A%2F%2Fexample.com%2Farticle",
+    "expected": "https://example.com/article",
+    "note": "Third branch of Common redirections: returns the decoded 'target' parameter."
+  },
+  {
+    "name": "redirect-search-app",
+    "input": "https://search.app/?link=https%3A%2F%2Fexample.com%2Fshot",
+    "expected": "https://example.com/shot",
+    "note": "Second branch of Common redirections: host 'search.app', path '/', query '.*\\blink=.+', returns the decoded 'link' parameter. The short-link rule afterwards sees a plain example.com URL and does not fetch."
+  },
+  {
+    "name": "redirect-uppercase-key-not-found",
+    "input": "https://www.douban.com/link2/?URL=https%3A%2F%2Fexample.com%2Fp",
+    "expected": "https://www.douban.com/link2/",
+    "note": "The query PATTERN is applied case-insensitively (so 'URL=' satisfies '.*\\burl=.+'), but getQueryParameter('url') compares the key case-sensitively and returns null; the rule therefore leaves the URL and the Douban rule then clears the query."
+  },
+  {
+    "name": "redirect-plus-in-value-stays-plus",
+    "input": "https://www.douban.com/link2/?url=https%3A%2F%2Fexample.com%2Fs%3Fq%3Da%2Bb",
+    "expected": "https://example.com/s?q=a%2Bb",
+    "note": "getQueryParameter decodes with convertPlus=true, but a %2B escape stays '+'; the subsequent query rebuild re-encodes it as %2B."
+  },
+  {
+    "name": "redirect-literal-plus-becomes-space",
+    "input": "https://www.douban.com/link2/?url=https%3A%2F%2Fex.com%2Fs%3Fq%3Da+b",
+    "expected": "https://ex.com/s?q=a%20b",
+    "note": "getQueryParameter decodes with convertPlus=true, so a LITERAL '+' inside the value becomes a space; the next rule's rebuild encodes that space as %20."
+  },
+  {
+    "name": "redirect-target-fragment-preserved",
+    "input": "https://www.douban.com/link2/?url=https%3A%2F%2Fexample.com%2Fp%3Fa%3D1%23sec",
+    "expected": "https://example.com/p?a=1#sec",
+    "note": "The redirect value may itself carry a fragment; it is returned verbatim after decoding and the query rebuild leaves it alone."
+  },
+  {
+    "name": "google-search-retain",
+    "input": "https://www.google.com/search?q=hello&sca_esv=xyz&tbm=isch",
+    "expected": "https://www.google.com/search?q=hello&tbm=isch",
+    "note": "retainQueryParameters('q|tbm') keeps q and tbm and drops sca_esv, preserving order."
+  },
+  {
+    "name": "google-search-path-anchoring",
+    "input": "https://www.google.com/search/?q=hello&sca_esv=xyz",
+    "expected": "https://www.google.com/search/?q=hello&sca_esv=xyz",
+    "note": "The path pattern '/search' must match the WHOLE encoded path, so '/search/' does not trigger the Google rule and sca_esv survives (analytics/ads do not remove it)."
+  },
+  {
+    "name": "amazon-strip-ref-and-query",
+    "input": "https://www.amazon.com/dp/B08N5WRWNW/ref=sr_1_1?keywords=usb",
+    "expected": "https://www.amazon.com/dp/B08N5WRWNW/",
+    "note": "Amazon clears the query first, then strips a trailing '/ref=...' path segment (lookbehind '(?<=\\/)ref=.+$', case-insensitive)."
+  },
+  {
+    "name": "amazon-strip-ref-root",
+    "input": "https://www.amazon.com/ref=nav_logo",
+    "expected": "https://www.amazon.com/",
+    "note": "Path '/ref=nav_logo' becomes '/' after stripping the ref segment."
+  },
+  {
+    "name": "amazon-strip-ref-case-insensitive",
+    "input": "https://www.amazon.com/dp/B08N5WRWNW/Ref=ABC",
+    "expected": "https://www.amazon.com/dp/B08N5WRWNW/",
+    "note": "The ref-strip regex uses the /i flag, so 'Ref=' is stripped too."
+  },
+  {
+    "name": "bilibili-retain-and-drop-p1",
+    "input": "https://www.bilibili.com/video/BV1xx411c7mD?p=1&t=10&vd_source=abc",
+    "expected": "https://www.bilibili.com/video/BV1xx411c7mD?t=10",
+    "note": "Bilibili retains business_id|business_type|itemsId|lottery_id|p|start_progress|t (dropping vd_source), then removeQueryParameters('p','1') drops p only because its value fully matches '1'."
+  },
+  {
+    "name": "bilibili-retain-p2",
+    "input": "https://www.bilibili.com/video/BV1xx411c7mD?p=2&vd_source=abc",
+    "expected": "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+    "note": "Same rules, but p=2 survives because the value pattern '1' is a full-match and '2' != '1'."
+  },
+  {
+    "name": "bilibili-bv-rule-disabled-by-default",
+    "input": "https://www.bilibili.com/video/BV17x411w7KC",
+    "expected": "https://www.bilibili.com/video/BV17x411w7KC",
+    "note": "The BV->av rule has enabled=false upstream, so the default rule set leaves the path as BV. The Bilibili rule runs but there is no query to change."
+  },
+  {
+    "name": "bilibili-bv-to-av-170001",
+    "input": "https://www.bilibili.com/video/BV17x411w7KC",
+    "expected": "https://www.bilibili.com/video/av170001/",
+    "ruleIds": ["db094a08-e3c4-4bd9-aa98-16df86237f6d"],
+    "note": "ruleIds here means 'run only this rule' (it is disabled upstream), which is how the BV algorithm can still be covered. bvCode='17x411w7KC'; swaps (1,7) and (2,5), drop index 0, base-58 fold over 'FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf' gives tmp such that (tmp & 2^51-1) ^ 23442827791579 == 170001; the rule then sets path '/video/av170001/' (note the new trailing slash)."
+  },
+  {
+    "name": "bilibili-bv-to-av-2",
+    "input": "https://www.bilibili.com/video/BV1xx411c7mD",
+    "expected": "https://www.bilibili.com/video/av2/",
+    "ruleIds": ["db094a08-e3c4-4bd9-aa98-16df86237f6d"],
+    "note": "Second hand-computed vector: the fold yields exactly XOR_CODE-2, so (tmp & MASK) ^ XOR_CODE == 2. This also pins down the XOR salt: the rule is not a plain base-58 decode."
+  },
+  {
+    "name": "bilibili-bv-to-av-trailing-slash",
+    "input": "https://www.bilibili.com/video/BV17x411w7KC/",
+    "expected": "https://www.bilibili.com/video/av170001/",
+    "ruleIds": ["db094a08-e3c4-4bd9-aa98-16df86237f6d"],
+    "note": "The path pattern allows an optional trailing slash and the BV capture stops at it; the rebuilt path always ends with '/'."
+  },
+  {
+    "name": "bilibili-bv-with-params",
+    "input": "https://www.bilibili.com/video/BV17x411w7KC?p=2&vd_source=abc",
+    "expected": "https://www.bilibili.com/video/av170001/?p=2",
+    "ruleIds": ["7edf803f-c165-46ef-b4d1-b8cbc6b5cb65", "db094a08-e3c4-4bd9-aa98-16df86237f6d"],
+    "note": "Run only these two rules, in upstream order: Bilibili retains p=2 (drops vd_source), then BV sets the path with setEncodedPath, which preserves the query."
+  },
+  {
+    "name": "pinterest-strip-sent",
+    "input": "https://www.pinterest.com/pin/123/sent/?utm_source=x",
+    "expected": "https://www.pinterest.com/pin/123/",
+    "note": "Pinterest clears the query, then strips a trailing 'sent/' path segment via '(?<=\\/)sent\\/?$'."
+  },
+  {
+    "name": "pinterest-strip-sent-no-slash",
+    "input": "https://www.pinterest.com/pin/123/sent",
+    "expected": "https://www.pinterest.com/pin/123/",
+    "note": "Same strip with the optional trailing slash absent: 'sent' is removed, leaving the directory slash."
+  },
+  {
+    "name": "reddit-retain-context",
+    "input": "https://www.reddit.com/r/foo/comments/abc/?context=3&utm_source=x",
+    "expected": "https://www.reddit.com/r/foo/comments/abc/?context=3",
+    "note": "analytics removes utm_source first; retainQueryParameters('context') then keeps only context."
+  },
+  {
+    "name": "old-reddit-sethost",
+    "input": "https://www.reddit.com/r/foo/?a=1#x",
+    "expected": "https://old.reddit.com/r/foo/?a=1#x",
+    "ruleIds": ["55662cf5-b43e-491a-b72b-adc1111b8583"],
+    "note": "ruleIds = run only this rule (enabled=false upstream). setHost replaces the authority, keeping path, query and fragment."
+  },
+  {
+    "name": "old-reddit-sethost-keeps-port",
+    "input": "https://www.reddit.com:8080/r/foo",
+    "expected": "https://old.reddit.com:8080/r/foo",
+    "ruleIds": ["55662cf5-b43e-491a-b72b-adc1111b8583"],
+    "note": "setHost rebuilds the authority as [encodedUserInfo@]encode(host)[:port]; a non-default port survives."
+  },
+  {
+    "name": "old-reddit-video-path",
+    "input": "https://v.redd.it/abc123",
+    "expected": "https://old.reddit.com/video/abc123",
+    "ruleIds": ["55662cf5-b43e-491a-b72b-adc1111b8583"],
+    "note": "setHost then setEncodedPath('/video' + getEncodedPath(original url)) - the path is read from the ORIGINAL argument, not from the host-rewritten URL."
+  },
+  {
+    "name": "threads-remove-slof-xmt",
+    "input": "https://www.threads.com/@u/post/123?slof=1&xmt=2&keep=3",
+    "expected": "https://www.threads.com/@u/post/123?keep=3",
+    "note": "removeQueryParameters('slof|xmt') drops those two keys and keeps the rest."
+  },
+  {
+    "name": "x-clear-query",
+    "input": "https://x.com/user/status/1?s=20&t=abc",
+    "expected": "https://x.com/user/status/1",
+    "note": "The X rule clears the whole query for the apex host 'x.com'."
+  },
+  {
+    "name": "spotify-clear-query",
+    "input": "https://open.spotify.com/track/abc?si=xyz",
+    "expected": "https://open.spotify.com/track/abc",
+    "note": "'(open\\.)?spotify\\.com' full-matches 'open.spotify.com'; the query is cleared."
+  },
+  {
+    "name": "taobao-retain-id",
+    "input": "https://item.taobao.com/item.htm?spm=a1z10.1&id=123&utm_source=x",
+    "expected": "https://item.taobao.com/item.htm?id=123",
+    "note": "analytics drops utm_source, then Taobao's retainQueryParameters('id') drops spm."
+  },
+  {
+    "name": "jd-retain-wareid",
+    "input": "https://item.jd.com/100012043978.html?utm_source=x&wareId=abc",
+    "expected": "https://item.jd.com/100012043978.html?wareId=abc",
+    "note": "JD retains id|shopId|skuIds|suitId|wareId; keys are matched case-sensitively as written in the query, so 'wareId' matches the pattern 'wareId'."
+  },
+  {
+    "name": "rednote-retain-xsec-token",
+    "input": "https://www.xiaohongshu.com/explore/abc?xsec_token=TOKEN&utm_source=x",
+    "expected": "https://www.xiaohongshu.com/explore/abc?xsec_token=TOKEN",
+    "note": "rednote retains only xsec_token; utm_source is already gone after analytics."
+  },
+  {
+    "name": "netease-retain-id",
+    "input": "https://y.music.163.com/m/song?id=123&uct=xyz",
+    "expected": "https://y.music.163.com/m/song?id=123",
+    "note": "NetEase Cloud Music retains only 'id'."
+  },
+  {
+    "name": "netflix-clear-query",
+    "input": "https://www.netflix.com/title/123?trackId=x",
+    "expected": "https://www.netflix.com/title/123",
+    "note": "Netflix clears the query component."
+  },
+  {
+    "name": "instagram-clear-query",
+    "input": "https://www.instagram.com/p/abc/?igsh=xyz",
+    "expected": "https://www.instagram.com/p/abc/",
+    "note": "Instagram clears the query component."
+  },
+  {
+    "name": "douyin-clear-query",
+    "input": "https://www.douyin.com/video/123?previous_page=app",
+    "expected": "https://www.douyin.com/video/123",
+    "note": "Douyin clears the query component."
+  },
+  {
+    "name": "smzdm-clear-query",
+    "input": "https://www.smzdm.com/p/123/?from=x",
+    "expected": "https://www.smzdm.com/p/123/",
+    "note": "SMZDM clears the query component."
+  },
+  {
+    "name": "tiktok-clear-query",
+    "input": "https://www.tiktok.com/@u/video/123?is_from_webapp=1",
+    "expected": "https://www.tiktok.com/@u/video/123",
+    "note": "TikTok clears the query component."
+  },
+  {
+    "name": "kuaishou-clear-query",
+    "input": "https://www.kuaishou.com/short-video/abc?fid=1",
+    "expected": "https://www.kuaishou.com/short-video/abc",
+    "note": "Kuaishou clears the query component for '.+\\.kuaishou\\.com'."
+  },
+  {
+    "name": "stackexchange-strip-answer-id",
+    "input": "https://stackoverflow.com/a/12345/678",
+    "expected": "https://stackoverflow.com/a/12345",
+    "note": "Path must fully match '/[aq]/[0-9]+/[0-9]+/?'; the trailing '/<number>' is then stripped by replace(/\\/[0-9]+\\/?$/)."
+  },
+  {
+    "name": "youtube-retain-on-short-host",
+    "input": "https://youtu.be/abc123?si=xyz&t=42",
+    "expected": "https://youtu.be/abc123?t=42",
+    "note": "youtu.be matches the YouTube host alternation; retainQueryParameters('index|list|t|v') keeps t=42 and drops si."
+  }
+]

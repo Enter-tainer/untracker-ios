@@ -1,0 +1,22 @@
+# Build artefacts
+build/
+DerivedData/
+*.ipa
+*.xcarchive
+*.xcresult
+
+# Local signing material — never commit certificates, profiles or passwords
+*.p12
+*.mobileprovision
+secrets/
+
+# macOS / Xcode
+.DS_Store
+xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/
+
+# Editors
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,808 @@
+{
+  "formatVersion": 1,
+  "indexUnit": "UTF-16 code units",
+  "indexUnitNote": "location/length are offsets into the UTF-16 code-unit sequence of `input` - identical to Java String char offsets and to NSString/NSRange offsets (NSRange uses UTF-16), so they compare 1:1 with the iOS implementation. They are NOT Unicode scalar, Character/grapheme, or UTF-8 byte offsets. Note that a character outside the BMP (e.g. an emoji) counts as 2. TOOLING WARNING: if you validate ranges or slice inputs with a code-point-based API (Python len()/slicing, Swift Character/UnicodeScalar counts) instead of UTF-16 (JS String.length/slice, NSString length, Python len(s.encode(\"utf-16-le\"))//2) then the two cases containing an emoji - \"start-boundary-allows-emoji\" and \"emoji-index-check\" - will look out of range / slice wrongly. That is expected: the golden data is correct in UTF-16 terms.",
+  "generatedFrom": "androidx.core.util.PatternsCompat.AUTOLINK_WEB_URL (androidx-main, IANA TLD snapshot 2023-09) executed on a JVM, plus a transcription of Untracker.findUrls() control flow and the real java.net.URI(url).normalize(). NOT a JS/TS reimplementation of the regex.",
+  "caseShape": "{name, input, spans: [{location, length, hasScheme, url, match}], skipped?: [...], note}",
+  "spansNote": "spans are ascending and non-overlapping, one per detected link. `url` is the string handed to the rules: the matched text with `http://` prepended when no scheme was present, after java.net.URI.normalize(). `hasScheme` records whether the matched TEXT had an explicit https?:// scheme. `match` is the raw matched text (== input.slice(location, location+length)) and is for humans/debugging only - the diff runner compares location/length/hasScheme/url.",
+  "skippedNote": "only present when the regex produced candidate matches that findUrls() discarded; each entry gives the candidate span and the reason (email-filter | ignored-scheme | not-hierarchical-absolute | uri-parse-error). Upstream would not report these at all.",
+  "cases": [
+    {
+      "name": "plain-one-url-mid-sentence",
+      "input": "Check out https://example.com/path/to/page today",
+      "spans": [
+        {
+          "location": 10,
+          "length": 32,
+          "hasScheme": true,
+          "url": "https://example.com/path/to/page",
+          "match": "https://example.com/path/to/page"
+        }
+      ],
+      "note": "Baseline: one absolute URL surrounded by ASCII words and spaces; the span covers exactly the URL."
+    },
+    {
+      "name": "url-at-string-start",
+      "input": "https://example.com/x?utm_source=1 then some text",
+      "spans": [
+        {
+          "location": 0,
+          "length": 34,
+          "hasScheme": true,
+          "url": "https://example.com/x?utm_source=1",
+          "match": "https://example.com/x?utm_source=1"
+        }
+      ],
+      "note": "Link at offset 0 - catches off-by-one at the start of the string."
+    },
+    {
+      "name": "url-at-string-end",
+      "input": "some text then https://example.com/x?utm_source=1",
+      "spans": [
+        {
+          "location": 15,
+          "length": 34,
+          "hasScheme": true,
+          "url": "https://example.com/x?utm_source=1",
+          "match": "https://example.com/x?utm_source=1"
+        }
+      ],
+      "note": "Link ending exactly at end-of-input; the trailing WORD_BOUNDARY uses the `$` alternative there."
+    },
+    {
+      "name": "url-only-input",
+      "input": "https://example.com/x?utm_source=1",
+      "spans": [
+        {
+          "location": 0,
+          "length": 34,
+          "hasScheme": true,
+          "url": "https://example.com/x?utm_source=1",
+          "match": "https://example.com/x?utm_source=1"
+        }
+      ],
+      "note": "input == URL: the simplest possible case."
+    },
+    {
+      "name": "two-links-in-one-string",
+      "input": "first https://a.example.com/x?utm_source=1 and second https://b.example.com/y?utm_source=2 end",
+      "spans": [
+        {
+          "location": 6,
+          "length": 36,
+          "hasScheme": true,
+          "url": "https://a.example.com/x?utm_source=1",
+          "match": "https://a.example.com/x?utm_source=1"
+        },
+        {
+          "location": 54,
+          "length": 36,
+          "hasScheme": true,
+          "url": "https://b.example.com/y?utm_source=2",
+          "match": "https://b.example.com/y?utm_source=2"
+        }
+      ],
+      "note": "Two spans in one string; ascending, non-overlapping."
+    },
+    {
+      "name": "two-links-adjacent-newline",
+      "input": "https://example.com/x?utm_source=1\nhttps://example.com/y?utm_source=2",
+      "spans": [
+        {
+          "location": 0,
+          "length": 34,
+          "hasScheme": true,
+          "url": "https://example.com/x?utm_source=1",
+          "match": "https://example.com/x?utm_source=1"
+        },
+        {
+          "location": 35,
+          "length": 34,
+          "hasScheme": true,
+          "url": "https://example.com/y?utm_source=2",
+          "match": "https://example.com/y?utm_source=2"
+        }
+      ],
+      "note": "Newline is not in the URL char class, so it terminates the first match; the second starts at offset 35 (34 + 1 for '\\n')."
+    },
+    {
+      "name": "multiline-text-with-links",
+      "input": "line one https://example.com/a\nline two https://example.com/b\nbyebye",
+      "spans": [
+        {
+          "location": 9,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/a",
+          "match": "https://example.com/a"
+        },
+        {
+          "location": 40,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/b",
+          "match": "https://example.com/b"
+        }
+      ],
+      "note": "Multi-line share text: each '\\n' is one UTF-16 unit, so the second location is offset by the first line's content."
+    },
+    {
+      "name": "no-url-plain-text",
+      "input": "nothing to see here, just words",
+      "spans": [],
+      "note": "Zero spans."
+    },
+    {
+      "name": "email-not-a-url",
+      "input": "contact user@example.com please",
+      "spans": [],
+      "note": "The regex matches 'example.com', but Linkify.sUrlMatchFilter rejects a match directly preceded by '@' => zero spans (the candidate is reported in `skipped`).",
+      "skipped": [
+        {
+          "location": 13,
+          "length": 11,
+          "reason": "email-filter",
+          "match": "example.com"
+        }
+      ]
+    },
+    {
+      "name": "email-with-plus-tag",
+      "input": "mail john.doe+tagger@example.com now",
+      "spans": [],
+      "note": "Same @-filter with a '+' in the local part. Zero spans.",
+      "skipped": [
+        {
+          "location": 21,
+          "length": 11,
+          "reason": "email-filter",
+          "match": "example.com"
+        }
+      ]
+    },
+    {
+      "name": "ftp-never-matched",
+      "input": "ftp://example.com/file.txt is not a web link",
+      "spans": [],
+      "note": "AUTOLINK_WEB_URL has no ftp branch, and its protocol-less branch is guarded by (?<!://), so nothing matches at all => zero spans."
+    },
+    {
+      "name": "rtsp-matched-but-skipped",
+      "input": "rtsp://example.com/live?utm_source=1",
+      "spans": [],
+      "note": "rtsp:// DOES match the regex (PROTOCOL includes rtsp) but findUrls() drops matches fully matching '(rtsp|ftp)://.*' => zero spans (candidate appears under `skipped`).",
+      "skipped": [
+        {
+          "location": 0,
+          "length": 36,
+          "reason": "ignored-scheme",
+          "match": "rtsp://example.com/live?utm_source=1"
+        }
+      ]
+    },
+    {
+      "name": "uppercase-scheme-and-host",
+      "input": "HTTPS://EXAMPLE.COM/Path?A=1",
+      "spans": [
+        {
+          "location": 0,
+          "length": 28,
+          "hasScheme": true,
+          "url": "HTTPS://EXAMPLE.COM/Path?A=1",
+          "match": "HTTPS://EXAMPLE.COM/Path?A=1"
+        }
+      ],
+      "note": "PROTOCOL is wrapped in (?i:...), so an uppercase scheme matches; host case never matters when a scheme is present."
+    },
+    {
+      "name": "schemeless-www-form",
+      "input": "see www.douban.com/subject/123/?from=timeline for details",
+      "spans": [
+        {
+          "location": 4,
+          "length": 41,
+          "hasScheme": false,
+          "url": "http://www.douban.com/subject/123/?from=timeline",
+          "match": "www.douban.com/subject/123/?from=timeline"
+        }
+      ],
+      "note": "No scheme: the protocol-less branch needs a STRICT (IANA) TLD, which 'com' satisfies. hasScheme=false and `url` is the prepended http:// form."
+    },
+    {
+      "name": "schemeless-bare-domain",
+      "input": "example.com/path?utm_source=1",
+      "spans": [
+        {
+          "location": 0,
+          "length": 29,
+          "hasScheme": false,
+          "url": "http://example.com/path?utm_source=1",
+          "match": "example.com/path?utm_source=1"
+        }
+      ],
+      "note": "Apex host without www and without scheme: matched via the strict-TLD branch."
+    },
+    {
+      "name": "schemeless-uppercase-host-not-matched",
+      "input": "WWW.Example.COM/x",
+      "spans": [],
+      "note": "Nasty: the IANA TLD list is lowercase and the protocol-less branch is NOT wrapped in (?i:...), so an uppercase TLD never matches => zero spans. A port that lowercases blindly would find a span here."
+    },
+    {
+      "name": "schemeless-unknown-tld",
+      "input": "visit foo.invalidtld/path now",
+      "spans": [],
+      "note": "The protocol-less branch requires an IANA TLD, so a made-up TLD yields zero spans."
+    },
+    {
+      "name": "start-boundary-blocked-by-cjk-letter",
+      "input": "看https://example.com/x",
+      "spans": [],
+      "note": "Crucial: WORD_BOUNDARY is Java's \\b, which uses Character.isLetterOrDigit (Unicode-aware). A CJK LETTER immediately before the scheme is a word char, so there is no boundary => the URL is NOT matched at all."
+    },
+    {
+      "name": "start-boundary-blocked-by-latin-letter",
+      "input": "ahttps://example.com/x",
+      "spans": [],
+      "note": "The pure-ASCII proof of the same rule: a letter glued to the scheme blocks the match (\\b fails between 'a' and 'h')."
+    },
+    {
+      "name": "start-boundary-blocked-by-digit",
+      "input": "1https://example.com/x",
+      "spans": [],
+      "note": "Digit is a word char too => no boundary, no match."
+    },
+    {
+      "name": "start-boundary-allows-emoji",
+      "input": "😀https://example.com/x",
+      "spans": [
+        {
+          "location": 2,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "An emoji is not a letter or digit, so the boundary holds and the match starts after it: location 2 because U+1F600 is a UTF-16 surrogate pair."
+    },
+    {
+      "name": "schemeless-cjk-prefix-absorbed-into-host",
+      "input": "分享链接example.com/x谢谢",
+      "spans": [
+        {
+          "location": 0,
+          "length": 19,
+          "hasScheme": false,
+          "url": "http://分享链接example.com/x谢谢",
+          "match": "分享链接example.com/x谢谢"
+        }
+      ],
+      "note": "VERY nasty: with no scheme, the protocol-less branch starts at '^' and IRI_LABEL includes CJK, so '分享链接example.com' is parsed as a HOST (label + '.com') and the trailing CJK is inside the path. The whole string is one span and the reported url is http://分享链接example.com/x谢谢."
+    },
+    {
+      "name": "schemeless-cjk-with-spaces",
+      "input": "分享链接 example.com/x 谢谢",
+      "spans": [
+        {
+          "location": 5,
+          "length": 13,
+          "hasScheme": false,
+          "url": "http://example.com/x",
+          "match": "example.com/x"
+        }
+      ],
+      "note": "Spaces delimit the URL: only 'example.com/x' is matched; location is 5 UTF-16 units (each CJK char is 1 unit)."
+    },
+    {
+      "name": "cjk-suffix-at-end-of-input",
+      "input": "https://example.com/x谢谢",
+      "spans": [
+        {
+          "location": 0,
+          "length": 23,
+          "hasScheme": true,
+          "url": "https://example.com/x谢谢",
+          "match": "https://example.com/x谢谢"
+        }
+      ],
+      "note": "Trailing CJK letters are inside UCS_CHAR and the end-of-input `$` satisfies the boundary, so they are swallowed into the span."
+    },
+    {
+      "name": "cjk-suffix-before-space",
+      "input": "https://example.com/x谢谢 后面",
+      "spans": [
+        {
+          "location": 0,
+          "length": 23,
+          "hasScheme": true,
+          "url": "https://example.com/x谢谢",
+          "match": "https://example.com/x谢谢"
+        }
+      ],
+      "note": "Greedy match takes '谢谢', then the boundary holds because the next char is a space and the previous is a letter => the CJK IS part of the span (unlike ASCII ','/'.')."
+    },
+    {
+      "name": "cjk-suffix-separated-by-space",
+      "input": "https://example.com/x 谢谢",
+      "spans": [
+        {
+          "location": 0,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "A space stops the greedy match before '谢', so the span is the URL only."
+    },
+    {
+      "name": "cjk-period-before-space",
+      "input": "https://example.com/x。 后面",
+      "spans": [
+        {
+          "location": 0,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "U+3002 is allowed in the URL char class but is not a letter, so the boundary backtracks over it (like ASCII '.'): the span ends at 'x'."
+    },
+    {
+      "name": "cjk-period-at-end-of-input",
+      "input": "https://example.com/x。",
+      "spans": [
+        {
+          "location": 0,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x。",
+          "match": "https://example.com/x。"
+        }
+      ],
+      "note": "Same '。' at end-of-input IS included ('$' satisfies the boundary)."
+    },
+    {
+      "name": "cjk-comma-before-space",
+      "input": "https://example.com/x， 后面",
+      "spans": [
+        {
+          "location": 0,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "U+FF0C before a space is excluded, symmetric with '。'."
+    },
+    {
+      "name": "cjk-comma-then-letters-at-end",
+      "input": "https://example.com/x，后面",
+      "spans": [
+        {
+          "location": 0,
+          "length": 24,
+          "hasScheme": true,
+          "url": "https://example.com/x，后面",
+          "match": "https://example.com/x，后面"
+        }
+      ],
+      "note": "U+FF0C plus CJK letters at end-of-input: everything is UCS_CHAR and `$` terminates => the whole tail is swallowed."
+    },
+    {
+      "name": "cjk-fullwidth-semicolon-then-letters-at-end",
+      "input": "https://example.com/x；后面",
+      "spans": [
+        {
+          "location": 0,
+          "length": 24,
+          "hasScheme": true,
+          "url": "https://example.com/x；后面",
+          "match": "https://example.com/x；后面"
+        }
+      ],
+      "note": "U+FF1B (；) plus CJK at end-of-input: swallowed, same mechanism."
+    },
+    {
+      "name": "cjk-period-then-letters-at-end",
+      "input": "https://example.com/x。后面",
+      "spans": [
+        {
+          "location": 0,
+          "length": 24,
+          "hasScheme": true,
+          "url": "https://example.com/x。后面",
+          "match": "https://example.com/x。后面"
+        }
+      ],
+      "note": "U+3002 followed by CJK letters at end-of-input: the letters make the continuation legal, so the whole tail is included."
+    },
+    {
+      "name": "trailing-period-mid-sentence",
+      "input": "See https://example.com/x. Then continue",
+      "spans": [
+        {
+          "location": 4,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "Trailing '.' followed by a space is excluded from the span (boundary backtracks over the punctuation)."
+    },
+    {
+      "name": "trailing-comma-mid-sentence",
+      "input": "See https://example.com/x, then continue",
+      "spans": [
+        {
+          "location": 4,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "Trailing ',' followed by a space is excluded."
+    },
+    {
+      "name": "trailing-period-at-end-of-input",
+      "input": "See https://example.com/x.",
+      "spans": [
+        {
+          "location": 4,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x.",
+          "match": "https://example.com/x."
+        }
+      ],
+      "note": "Trailing '.' at end-of-input is INCLUDED ('$' satisfies the boundary) - one char longer than the mid-sentence variant."
+    },
+    {
+      "name": "trailing-comma-at-end-of-input",
+      "input": "See https://example.com/x,",
+      "spans": [
+        {
+          "location": 4,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x,",
+          "match": "https://example.com/x,"
+        }
+      ],
+      "note": "Trailing ',' at end-of-input is INCLUDED."
+    },
+    {
+      "name": "trailing-slash-at-end-of-input",
+      "input": "https://example.com/x/",
+      "spans": [
+        {
+          "location": 0,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x/",
+          "match": "https://example.com/x/"
+        }
+      ],
+      "note": "Trailing '/' at end-of-input is included (path char)."
+    },
+    {
+      "name": "trailing-slash-mid-sentence",
+      "input": "https://example.com/x/ done",
+      "spans": [
+        {
+          "location": 0,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "Trailing '/' before a space is dropped by the boundary backtrack."
+    },
+    {
+      "name": "paren-mid-sentence",
+      "input": "See (https://example.com/x) now",
+      "spans": [
+        {
+          "location": 5,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "')' is in the path char class; followed by a space it is excluded, and the opening '(' is not in the class so it is never included."
+    },
+    {
+      "name": "paren-at-end-of-input",
+      "input": "See (https://example.com/x)",
+      "spans": [
+        {
+          "location": 5,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x)",
+          "match": "https://example.com/x)"
+        }
+      ],
+      "note": "Nasty: ')' at end-of-input IS included in the span (the surrounding '(' is not)."
+    },
+    {
+      "name": "fullwidth-parens-at-end-of-input",
+      "input": "（https://example.com/x）",
+      "spans": [
+        {
+          "location": 1,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x）",
+          "match": "https://example.com/x）"
+        }
+      ],
+      "note": "U+FF09 (）) is UCS_CHAR, so it is included at end-of-input; the leading U+FF08 is not part of the match."
+    },
+    {
+      "name": "angle-brackets",
+      "input": "<https://example.com/x>",
+      "spans": [
+        {
+          "location": 1,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "'<' and '>' are not in the char class, so both are excluded."
+    },
+    {
+      "name": "double-quoted",
+      "input": "\"https://example.com/x\"",
+      "spans": [
+        {
+          "location": 1,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "Double quote is not in the char class => excluded."
+    },
+    {
+      "name": "square-brackets",
+      "input": "[https://example.com/x]",
+      "spans": [
+        {
+          "location": 1,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "Square brackets are not in the char class => excluded."
+    },
+    {
+      "name": "port-in-authority",
+      "input": "https://example.com:8080/x?utm_source=1",
+      "spans": [
+        {
+          "location": 0,
+          "length": 39,
+          "hasScheme": true,
+          "url": "https://example.com:8080/x?utm_source=1",
+          "match": "https://example.com:8080/x?utm_source=1"
+        }
+      ],
+      "note": "PORT_NUMBER (:\\d{1,5}) is part of the match."
+    },
+    {
+      "name": "userinfo-and-port",
+      "input": "https://user:pass@example.com:8443/x",
+      "spans": [
+        {
+          "location": 0,
+          "length": 36,
+          "hasScheme": true,
+          "url": "https://user:pass@example.com:8443/x",
+          "match": "https://user:pass@example.com:8443/x"
+        }
+      ],
+      "note": "USER_INFO and PORT are both part of the match; the rules see the full authority."
+    },
+    {
+      "name": "bare-scheme-no-authority",
+      "input": "see https:// for details",
+      "spans": [],
+      "note": "The regex matches 'https://' (domain is optional in the protocol branch), but Android Uri.isHierarchical is false for a scheme with an empty scheme-specific part, so findUrls() skips it => zero spans (candidate under `skipped`)."
+    },
+    {
+      "name": "query-only-marker",
+      "input": "https://example.com/x?",
+      "spans": [
+        {
+          "location": 0,
+          "length": 22,
+          "hasScheme": true,
+          "url": "https://example.com/x?",
+          "match": "https://example.com/x?"
+        }
+      ],
+      "note": "Bare '?' is included: this is the input for which Android's encodedQuery is \"\" (empty, not null)."
+    },
+    {
+      "name": "trailing-ampersand",
+      "input": "https://example.com/x?a=1&",
+      "spans": [
+        {
+          "location": 0,
+          "length": 26,
+          "hasScheme": true,
+          "url": "https://example.com/x?a=1&",
+          "match": "https://example.com/x?a=1&"
+        }
+      ],
+      "note": "Trailing '&' is included; the query walker later turns it into an extra empty parameter."
+    },
+    {
+      "name": "percent-trap-invalid-escape",
+      "input": "https://example.com/x?q=100%",
+      "spans": [
+        {
+          "location": 0,
+          "length": 27,
+          "hasScheme": true,
+          "url": "https://example.com/x?q=100",
+          "match": "https://example.com/x?q=100"
+        }
+      ],
+      "note": "Nasty: '%' not followed by two hex digits cannot be consumed (the class only allows %[a-fA-F0-9]{2}), so the span stops before '%' and the '%' stays in the surrounding text."
+    },
+    {
+      "name": "percent-encoded-cjk",
+      "input": "https://example.com/s?q=%E4%B8%AD%E6%96%87",
+      "spans": [
+        {
+          "location": 0,
+          "length": 42,
+          "hasScheme": true,
+          "url": "https://example.com/s?q=%E4%B8%AD%E6%96%87",
+          "match": "https://example.com/s?q=%E4%B8%AD%E6%96%87"
+        }
+      ],
+      "note": "'%XX' pairs are matched as units; the span covers the whole query."
+    },
+    {
+      "name": "raw-cjk-in-query",
+      "input": "https://example.com/s?q=中文&utm_source=x",
+      "spans": [
+        {
+          "location": 0,
+          "length": 39,
+          "hasScheme": true,
+          "url": "https://example.com/s?q=中文&utm_source=x",
+          "match": "https://example.com/s?q=中文&utm_source=x"
+        }
+      ],
+      "note": "Raw CJK inside the query is matched via UCS_CHAR."
+    },
+    {
+      "name": "space-in-query-terminates",
+      "input": "https://example.com/x?q=a b",
+      "spans": [
+        {
+          "location": 0,
+          "length": 25,
+          "hasScheme": true,
+          "url": "https://example.com/x?q=a",
+          "match": "https://example.com/x?q=a"
+        }
+      ],
+      "note": "A space is not in the char class, so the span stops at it: only 'https://example.com/x?q=a' is detected."
+    },
+    {
+      "name": "fragment-included",
+      "input": "https://example.com/x?a=1#frag",
+      "spans": [
+        {
+          "location": 0,
+          "length": 30,
+          "hasScheme": true,
+          "url": "https://example.com/x?a=1#frag",
+          "match": "https://example.com/x?a=1#frag"
+        }
+      ],
+      "note": "'#' and the fragment are part of the match."
+    },
+    {
+      "name": "dot-segments-normalised-in-url",
+      "input": "https://example.com/a/./b/../c?utm_source=x",
+      "spans": [
+        {
+          "location": 0,
+          "length": 43,
+          "hasScheme": true,
+          "url": "https://example.com/a/c?utm_source=x",
+          "match": "https://example.com/a/./b/../c?utm_source=x"
+        }
+      ],
+      "note": "The span is the raw text, but the reported `url` is java.net.URI(url).normalize() => https://example.com/a/c?utm_source=x."
+    },
+    {
+      "name": "idn-domain-with-scheme",
+      "input": "https://例え.jp/パス",
+      "spans": [
+        {
+          "location": 0,
+          "length": 16,
+          "hasScheme": true,
+          "url": "https://例え.jp/パス",
+          "match": "https://例え.jp/パス"
+        }
+      ],
+      "note": "With an explicit scheme the domain is RELAXED, so CJK host labels are matched (UCS_CHAR) and java.net.URI accepts them."
+    },
+    {
+      "name": "emoji-index-check",
+      "input": "😀 https://example.com/x?utm_source=1",
+      "spans": [
+        {
+          "location": 3,
+          "length": 34,
+          "hasScheme": true,
+          "url": "https://example.com/x?utm_source=1",
+          "match": "https://example.com/x?utm_source=1"
+        }
+      ],
+      "note": "U+1F600 is 2 UTF-16 code units + 1 space => location 3. A port counting Unicode scalars would report 2; one counting grapheme clusters would report 1."
+    },
+    {
+      "name": "emoji-and-cjk-before-link",
+      "input": "转发😀分享 https://example.com/x 结束",
+      "spans": [
+        {
+          "location": 7,
+          "length": 21,
+          "hasScheme": true,
+          "url": "https://example.com/x",
+          "match": "https://example.com/x"
+        }
+      ],
+      "note": "Emoji and CJK before the link, with spaces around it: location is 7 UTF-16 units (2+2+2+1)."
+    },
+    {
+      "name": "two-links-cjk-glued-first",
+      "input": "第一https://example.com/一?x=1 第二 https://example.com/two",
+      "spans": [
+        {
+          "location": 31,
+          "length": 23,
+          "hasScheme": true,
+          "url": "https://example.com/two",
+          "match": "https://example.com/two"
+        }
+      ],
+      "note": "The first URL is glued to a CJK letter and is therefore NOT detected at all; only the second (space-delimited) yields a span."
+    },
+    {
+      "name": "colon-in-path",
+      "input": "https://example.com/x:8080/y",
+      "spans": [
+        {
+          "location": 0,
+          "length": 28,
+          "hasScheme": true,
+          "url": "https://example.com/x:8080/y",
+          "match": "https://example.com/x:8080/y"
+        }
+      ],
+      "note": "':' is in the char class, so the whole text is one match; the ':8080' sits in the path, not the authority."
+    }
+  ]
+}

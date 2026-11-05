@@ -1,0 +1,89 @@
+name: Untracker
+options:
+  bundleIdPrefix: moe.mgt
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CLANG_ENABLE_MODULES: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+  Untracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/Kit
+      - path: Sources/App
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/BuiltinRules.json
+        buildPhase: resources
+      - path: Resources/SelfTestCases.json
+        buildPhase: resources
+      - path: Resources/FindURLsCases.json
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: moe.mgt.untracker
+        PRODUCT_NAME: Untracker
+        INFOPLIST_FILE: Sources/App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: Sources/App/Untracker.entitlements
+        ENABLE_BITCODE: NO
+    dependencies:
+      - target: UntrackerShare
+        embed: true
+      - target: UntrackerAction
+        embed: true
+
+  # Share Extension — the share sheet's app row ("share to Untracker").
+  UntrackerShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Kit
+      - path: Sources/ExtensionKit
+      - path: Sources/ShareExtension
+      - path: Resources/BuiltinRules.json
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: moe.mgt.untracker.share
+        PRODUCT_NAME: UntrackerShare
+        INFOPLIST_FILE: Sources/ShareExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/ShareExtension/UntrackerShare.entitlements
+        SKIP_INSTALL: YES
+        ENABLE_BITCODE: NO
+
+  # Action Extension — the share sheet's Actions row / Safari action menu.
+  UntrackerAction:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Kit
+      - path: Sources/ExtensionKit
+      - path: Sources/ActionExtension
+      - path: Resources/BuiltinRules.json
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: moe.mgt.untracker.action
+        PRODUCT_NAME: UntrackerAction
+        INFOPLIST_FILE: Sources/ActionExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/ActionExtension/UntrackerAction.entitlements
+        SKIP_INSTALL: YES
+        ENABLE_BITCODE: NO
