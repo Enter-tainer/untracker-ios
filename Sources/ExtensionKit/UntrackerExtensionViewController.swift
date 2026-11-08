@@ -96,17 +96,14 @@ class UntrackerExtensionViewController: UIViewController {
     // MARK: Content
 
     private func loadSharedContent() {
-        let rules: [Rule]
+        // Quick and panel paths must produce the same result — including short-link
+        // expansion. Skipping the network rules here used to hand b23.tv / t.cn style
+        // shares back untouched (TECH-65).
+        let rules = RuleStore.shared.enabledRules
         if copiesImmediately {
-            // The quick action is silent and must finish before the system page becomes
-            // visible, so it never follows short links: a network redirect would hold the
-            // extension (and therefore the system container) open for as long as it takes.
-            rules = RuleStore.shared.enabledRules.filter { !$0.script.contains("$.fetch") }
             // The quick action is invisible; the extension context exists purely to receive
             // the payload, copy the clean link and complete the request.
             model.onResult = { [weak self] _ in self?.finishQuickCopy() }
-        } else {
-            rules = RuleStore.shared.enabledRules
         }
 
         let providers = (extensionContext?.inputItems as? [NSExtensionItem])?

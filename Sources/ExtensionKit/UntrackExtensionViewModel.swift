@@ -110,10 +110,10 @@ final class UntrackExtensionViewModel: ObservableObject {
             return
         }
 
-        ExtensionLog.line("untracking payload length=\(payload.count)")
+        ExtensionLog.line("untracking payload=\(payload.prefix(240))")
         let outcome = UntrackService.untrack(text: payload, rules: rules)
         let cleaned = outcome.changed ? outcome.output : payload
-        ExtensionLog.line("untracked changed=\(outcome.changed) urls=\(outcome.urls.count)")
+        ExtensionLog.line("untracked changed=\(outcome.changed) urls=\(outcome.urls.count) cleaned=\(cleaned.prefix(240))")
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
