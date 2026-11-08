@@ -3,9 +3,13 @@
 //  ExtensionKit
 //
 //  Hosts the SwiftUI extension UI and wires it to the extension context. Shared by
-//  both the Share Extension (Apps row) and the Action Extension (Actions row, and
-//  Safari's action menu for selected text — the iOS equivalent of Android's
-//  "select text → Untrack").
+//  both the Share Extension (apps row) and the Action Extension (bottom quick action,
+//  and Safari's action menu).
+//
+//  The two entries differ in one respect: the Share Extension (app row) is a silent
+//  one-tap copy — no UI at all, just a success haptic before the sheet closes itself
+//  (`copiesImmediately`); the Action Extension (bottom quick action / Safari action menu)
+//  shows the review panel (cleaned link, removed parameters, matched rules, Copy and Share).
 //
 //  Note on sizing: iOS controls the height of an extension sheet and ignores
 //  `preferredContentSize`, so this controller deliberately does not try to size
@@ -21,17 +25,47 @@ import UniformTypeIdentifiers
 class UntrackerExtensionViewController: UIViewController {
     private let model = UntrackExtensionViewModel()
     private var hostingController: UIViewController?
+    private var hasAppeared = false
+    private var hasCompleted = false
+    private var pendingCompletion = false
+    private var watchdog: DispatchWorkItem?
+
+    /// Quick entries copy the clean link and dismiss themselves without showing anything.
+    /// The Share Extension (share sheet app row) overrides this to `true`; the Action
+    /// Extension keeps the review panel.
+    var copiesImmediately: Bool { false }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        installSwiftUI()
+        ExtensionLog.line("loaded quick=\(copiesImmediately)")
+        if copiesImmediately {
+            // No UI at all: the system page gets no content, it is only the container in
+            // which the copy happens. Background stays clear so the flash is minimal.
+            view.backgroundColor = .clear
+            // Never leave the share sheet stuck, whatever the payload does.
+            scheduleWatchdog()
+        } else {
+            view.backgroundColor = .systemBackground
+            installSwiftUI()
+        }
         loadSharedContent()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        hasAppeared = true
+        if pendingCompletion {
+            // The early completeRequest was ignored (only happens on some hosts); ask again
+            // now that the container is definitely up.
+            pendingCompletion = false
+            completeRequest(reason: "retry-after-appear")
+        }
     }
 
     // MARK: SwiftUI
 
     private func installSwiftUI() {
+        guard hostingController == nil else { return }
         let rootView = UntrackExtensionRootView(
             model: model,
             onCopy: { [weak self] in self?.copyAndFinish() },
@@ -62,8 +96,22 @@ class UntrackerExtensionViewController: UIViewController {
     // MARK: Content
 
     private func loadSharedContent() {
+        let rules: [Rule]
+        if copiesImmediately {
+            // The quick action is silent and must finish before the system page becomes
+            // visible, so it never follows short links: a network redirect would hold the
+            // extension (and therefore the system container) open for as long as it takes.
+            rules = RuleStore.shared.enabledRules.filter { !$0.script.contains("$.fetch") }
+            // The quick action is invisible; the extension context exists purely to receive
+            // the payload, copy the clean link and complete the request.
+            model.onResult = { [weak self] _ in self?.finishQuickCopy() }
+        } else {
+            rules = RuleStore.shared.enabledRules
+        }
+
         let providers = (extensionContext?.inputItems as? [NSExtensionItem])?
             .flatMap { $0.attachments ?? [] } ?? []
+        ExtensionLog.line("providers=\(providers.count) rules=\(rules.count)")
 
         // Action extensions can also be invoked on a text selection that the host
         // hands over as `NSExtensionItem.attributedContentText`.
@@ -72,23 +120,64 @@ class UntrackerExtensionViewController: UIViewController {
                 .compactMap { $0.attributedContentText?.string }
                 .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             if let text = text {
-                model.load(from: [NSItemProvider(object: text as NSString)])
+                ExtensionLog.line("attributedContentText length=\(text.count)")
+                model.load(from: [NSItemProvider(object: text as NSString)], rules: rules)
                 return
             }
-            model.load(from: [])
+            model.load(from: [], rules: rules)
             return
         }
 
-        model.load(from: providers)
+        model.load(from: providers, rules: rules)
     }
 
     // MARK: Actions
+
+    /// Quick action: put the clean link on the clipboard, buzz, and get out of the way.
+    ///
+    /// No UI is involved at all. Text that contains no link is still copied unchanged
+    /// (there is simply nothing to strip).
+    private func finishQuickCopy() {
+        guard model.hasResult, !model.cleanedText.isEmpty else {
+            // Nothing to copy — close instead of leaving an empty system page up.
+            ExtensionLog.line("nothing to copy; completing")
+            completeRequest(reason: "nothing-to-copy")
+            return
+        }
+        UIPasteboard.general.string = model.cleanedText
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        ExtensionLog.line("copied")
+        // Complete immediately: by the time the system would draw the extension page the
+        // request is already finished, so the share sheet simply closes instead of showing
+        // an empty panel. If a host ignores the early completion, viewDidAppear retries it.
+        completeRequest(reason: "quick-copy")
+        pendingCompletion = true
+    }
+
+    private func completeRequest(reason: String) {
+        hasCompleted = true
+        watchdog?.cancel()
+        watchdog = nil
+        ExtensionLog.line("complete (\(reason))")
+        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+
+    /// Quick action must never hang: if the payload cannot be resolved, close the sheet.
+    private func scheduleWatchdog() {
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self, !self.hasCompleted else { return }
+            ExtensionLog.line("watchdog fired")
+            self.completeRequest(reason: "watchdog")
+        }
+        watchdog = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: item)
+    }
 
     private func copyAndFinish() {
         guard model.hasResult, !model.cleanedText.isEmpty else { return }
         UIPasteboard.general.string = model.cleanedText
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        completeRequest(reason: "panel-copy")
     }
 
     private func presentShareSheet() {
@@ -102,6 +191,10 @@ class UntrackerExtensionViewController: UIViewController {
     }
 
     private func cancelExtension() {
+        ExtensionLog.line("cancelled by user")
+        hasCompleted = true
+        watchdog?.cancel()
+        watchdog = nil
         extensionContext?.cancelRequest(
             withError: NSError(domain: "moe.mgt.untracker.extension", code: 0)
         )

@@ -81,7 +81,9 @@ struct AboutView: View {
                 }
 
                 Section("Usage") {
-                    Label("Share a link from any app → choose Untracker → Copy.", systemImage: "square.and.arrow.up")
+                    Label("Share a link from any app → tap Untracker in the app row: the clean link is already on the clipboard.", systemImage: "square.and.arrow.up")
+                        .font(.footnote)
+                    Label("The quick action at the bottom of the share sheet shows what was removed before you copy.", systemImage: "wand.and.stars")
                         .font(.footnote)
                     Label("Paste a link in the Untrack tab to preview what would be removed.", systemImage: "doc.on.clipboard")
                         .font(.footnote)

@@ -23,12 +23,12 @@ Untracker instead runs **per-site rules** that know what each site actually need
 and it can **expand short links** (`b23.tv`, `t.cn`, `amzn.to`, `xhslink.com`, …)
 by following one redirect before cleaning.\n\n## Features
 
-- **Share Extension** — appear in the share sheet's app row: share a link from any
-  app, get it cleaned, then **Copy** or **Share again** (both actions mirror the
-  Android app).
-- **Action Extension** — the same UI in the share sheet's **Actions** row, and in
-  Safari's action menu for the current page or a text selection (the closest iOS
-  equivalent of Android's “select text → Untrack”).
+- **Share Extension (one-tap copy)** — appears in the share sheet's app row: the clean
+  link goes straight to the clipboard (just a success haptic) and the sheet closes by
+  itself — no panel, no second tap.
+- **Action Extension** — the bottom **Actions** row and Safari's action menu: a review
+  panel with the cleaned link, the parameters that were removed, the matched rules, then
+  **Copy** or **Share again** (mirrors the Android app's review flow).
 - **Home screen quick actions** — long-press the app icon: *Paste & Untrack*, *Rules*.
 - **Rule editor** — see which rule removed what, enable/disable the 27 built-in
   rules, write your own JS rule with syntax checking and a live preview.
@@ -118,6 +118,7 @@ Everything here is reproducible; no debugger needed (an Ad Hoc install has
 | End-to-end cleaning | **78/78 cases** (simulator + device) | launch with `--run-selftest`, pull the JSON report |
 | Link-detection spans | **60/60 cases, 52 spans identical** | `node tools/rules/verify-findurls.mjs --actual <export>` |
 | Share/Action extension registration | both listed by `pluginkit` | `xcrun simctl spawn booted pluginkit -m -p com.apple.share-services` |
+| Quick-share behaviour | sheet closes itself, clean link on the pasteboard | XCUITest drives the real share sheet in the Simulator; pasteboard read with `xcrun simctl pbpaste` |
 
 The span oracle was produced by running the real androidx matcher plus
 `java.net.URI.normalize()` on a JVM — it is not a reimplementation of my own code.

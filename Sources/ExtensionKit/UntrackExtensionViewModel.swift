@@ -26,6 +26,11 @@ final class UntrackExtensionViewModel: ObservableObject {
 
     var hasResult: Bool { phase == .cleaned || phase == .unchanged }
 
+    /// Called on the main queue once loading/untracking reaches a terminal phase.
+    /// `true` when a link was cleaned, `false` for the empty phases. Quick-share entry
+    /// points use this to copy the result without waiting for a UI interaction.
+    var onResult: ((Bool) -> Void)?
+
 
     // MARK: Loading
 
@@ -34,9 +39,9 @@ final class UntrackExtensionViewModel: ObservableObject {
     /// Many Chinese apps (Bilibili, Xiaohongshu, Douyin …) share a title *and* a
     /// link, sometimes as several attachments; prefer the URL, fall back to the
     /// text (which may still contain the link).
-    func load(from providers: [NSItemProvider]) {
+    func load(from providers: [NSItemProvider], rules: [Rule]) {
         guard !providers.isEmpty else {
-            phase = .empty("Nothing was shared with Untracker.")
+            finish(emptyMessage: "Nothing was shared with Untracker.")
             return
         }
 
@@ -73,12 +78,16 @@ final class UntrackExtensionViewModel: ObservableObject {
             }
         }
 
-        group.notify(queue: .global(qos: .userInitiated)) { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Never let a misbehaving item provider keep the share sheet open forever.
+            if group.wait(timeout: .now() + 4.0) == .timedOut {
+                ExtensionLog.line("provider load timed out, using what arrived")
+            }
             lock.lock()
             let url = urlString
             let text = textString
             lock.unlock()
-            self?.process(url: url, text: text)
+            self?.process(url: url, text: text, rules: rules)
         }
     }
 
@@ -89,21 +98,22 @@ final class UntrackExtensionViewModel: ObservableObject {
         return nil
     }
 
-    private func process(url: String?, text: String?) {
+    private func process(url: String?, text: String?, rules: [Rule]) {
         let payload: String
         if let url = url, !url.isEmpty {
             payload = url
         } else if let text = text, !text.isEmpty {
             payload = text
         } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.phase = .empty("No link found in what was shared.")
-            }
+            ExtensionLog.line("no payload (url=nil text=nil)")
+            finish(emptyMessage: "No link found in what was shared.")
             return
         }
 
-        let outcome = UntrackService.untrack(text: payload, rules: RuleStore.shared.enabledRules)
+        ExtensionLog.line("untracking payload length=\(payload.count)")
+        let outcome = UntrackService.untrack(text: payload, rules: rules)
         let cleaned = outcome.changed ? outcome.output : payload
+        ExtensionLog.line("untracked changed=\(outcome.changed) urls=\(outcome.urls.count)")
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -115,6 +125,16 @@ final class UntrackExtensionViewModel: ObservableObject {
             if outcome.changed {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
+            self.onResult?(outcome.changed)
+        }
+    }
+
+    /// Publishes an empty terminal phase on the main queue and notifies the observer.
+    private func finish(emptyMessage: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.phase = .empty(emptyMessage)
+            self.onResult?(false)
         }
     }
 }

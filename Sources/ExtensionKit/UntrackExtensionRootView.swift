@@ -2,9 +2,11 @@
 //  UntrackExtensionRootView.swift
 //  ExtensionKit
 //
-//  The whole extension UI, in SwiftUI so it looks and feels like a normal iOS
-//  sheet: a header with the app mark, the cleaned link in a rounded block, the
-//  parameters that were removed, and one clear primary action.
+//  The review panel, in SwiftUI: a header with the app mark, the cleaned link in a
+//  rounded block, the parameters that were removed, and one clear primary action.
+//
+//  Only the Share Extension (share sheet app row) shows this. The Action Extension's
+//  bottom quick action copies silently and dismisses itself, so it has no UI at all.
 //
 
 import SwiftUI
