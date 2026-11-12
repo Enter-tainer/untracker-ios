@@ -32,15 +32,25 @@ final class UntrackEngine {
 
     /// Applies every enabled rule, in order, to a single URL.
     ///
-    /// - Parameter deadline: safety valve — rules that keep making progress past
-    ///   this many seconds are abandoned (the upstream `Common short links` rule
-    ///   performs network requests, so this guards against a slow network).
-    func untrack(_ url: String, rules: [Rule], deadline: TimeInterval = 20) -> (url: String, appliedRules: [String]) {
+    /// - Parameters:
+    ///   - allowNetwork: when `false`, rules that call `$.fetch` are skipped, so the
+    ///     caller gets a result without touching the network. The share extension uses
+    ///     this to copy a locally cleaned link first and upgrade it later (TECH-72).
+    ///   - deadline: safety valve — rules that keep making progress past
+    ///     this many seconds are abandoned (the upstream `Common short links` rule
+    ///     performs network requests, so this guards against a slow network).
+    func untrack(
+        _ url: String,
+        rules: [Rule],
+        allowNetwork: Bool = true,
+        deadline: TimeInterval = 20
+    ) -> (url: String, appliedRules: [String]) {
         queue.sync {
             let start = Date()
             var current = url
             var applied: [String] = []
             for rule in rules where rule.enabled {
+                if !allowNetwork && rule.requiresNetwork { continue }
                 if Date().timeIntervalSince(start) > deadline { break }
                 guard let output = apply(script: rule.script, to: current) else { continue }
                 if output != current {

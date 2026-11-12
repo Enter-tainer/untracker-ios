@@ -71,7 +71,10 @@ enum UntrackService {
     }
 
     /// Cleans every link in `text` using `rules` (only enabled rules are applied).
-    static func untrack(text: String, rules: [Rule]) -> UntrackResult {
+    ///
+    /// - Parameter allowNetwork: passed through to the engine; `false` skips rules that
+    ///   fetch short-link redirects, which is what the quick-copy path copies first.
+    static func untrack(text: String, rules: [Rule], allowNetwork: Bool = true) -> UntrackResult {
         let found = findURLs(in: text)
         guard !found.isEmpty else {
             return UntrackResult(input: text, output: text, urls: [])
@@ -90,7 +93,11 @@ enum UntrackService {
             var cleaned = item.processingURL
             var applied: [String] = []
             if !enabledRules.isEmpty {
-                let outcome = UntrackEngine.shared.untrack(item.processingURL, rules: enabledRules)
+                let outcome = UntrackEngine.shared.untrack(
+                    item.processingURL,
+                    rules: enabledRules,
+                    allowNetwork: allowNetwork
+                )
                 cleaned = outcome.url
                 applied = outcome.appliedRules
             }
@@ -121,8 +128,8 @@ enum UntrackService {
     }
 
     /// Convenience for a single URL string.
-    static func untrack(url: String, rules: [Rule]) -> String {
-        untrack(text: url, rules: rules).output
+    static func untrack(url: String, rules: [Rule], allowNetwork: Bool = true) -> String {
+        untrack(text: url, rules: rules, allowNetwork: allowNetwork).output
     }
 
     // MARK: Removed parameter diff

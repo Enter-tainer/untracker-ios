@@ -29,6 +29,16 @@ class UntrackerExtensionViewController: UIViewController {
     private var hasCompleted = false
     private var pendingCompletion = false
     private var watchdog: DispatchWorkItem?
+    private let feedback = UINotificationFeedbackGenerator()
+    /// Rules resolved once at load time: the quick path uses them twice (local pass and
+    /// the network upgrade), the panel path only once.
+    private var quickRules: [Rule] = []
+    /// Work that must only run once the extension is really on screen.
+    private var pendingQuickAction: (() -> Void)?
+    private var pendingQuickFallback: DispatchWorkItem?
+    /// When the extension view started loading — used to measure how long the system
+    /// took to present us (cold vs warm start), which is what triggers TECH-72.
+    private var loadedAt = Date()
 
     /// Quick entries copy the clean link and dismiss themselves without showing anything.
     /// The Share Extension (share sheet app row) overrides this to `true`; the Action
@@ -37,11 +47,13 @@ class UntrackerExtensionViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        loadedAt = Date()
         ExtensionLog.line("loaded quick=\(copiesImmediately)")
         if copiesImmediately {
             // No UI at all: the system page gets no content, it is only the container in
             // which the copy happens. Background stays clear so the flash is minimal.
             view.backgroundColor = .clear
+            feedback.prepare()
             // Never leave the share sheet stuck, whatever the payload does.
             scheduleWatchdog()
         } else {
@@ -54,6 +66,7 @@ class UntrackerExtensionViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         hasAppeared = true
+        flushPendingQuickAction()
         if pendingCompletion {
             // The early completeRequest was ignored (only happens on some hosts); ask again
             // now that the container is definitely up.
@@ -98,57 +111,151 @@ class UntrackerExtensionViewController: UIViewController {
     private func loadSharedContent() {
         // Quick and panel paths must produce the same result — including short-link
         // expansion. Skipping the network rules here used to hand b23.tv / t.cn style
-        // shares back untouched (TECH-65).
+        // shares back untouched (TECH-65). The quick path now runs them as a second,
+        // optional pass instead of making the copy wait on them (TECH-72).
         let rules = RuleStore.shared.enabledRules
+        let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
+        let providers = items.flatMap { $0.attachments ?? [] }
+        // Action extensions can also be invoked on a text selection that the host hands
+        // over as `attributedContentText` — with or without attachments.
+        let attributedText = items
+            .compactMap { $0.attributedContentText?.string }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
         if copiesImmediately {
             // The quick action is invisible; the extension context exists purely to receive
             // the payload, copy the clean link and complete the request.
-            model.onResult = { [weak self] _ in self?.finishQuickCopy() }
+            quickRules = rules
+            model.onPayload = { [weak self] payload in self?.quickCopy(payload: payload) }
+            model.onFailure = { [weak self] reason in self?.quickFail(reason: reason) }
         }
 
-        let providers = (extensionContext?.inputItems as? [NSExtensionItem])?
-            .flatMap { $0.attachments ?? [] } ?? []
-        ExtensionLog.line("providers=\(providers.count) rules=\(rules.count)")
-
-        // Action extensions can also be invoked on a text selection that the host
-        // hands over as `NSExtensionItem.attributedContentText`.
-        if providers.isEmpty {
-            let text = (extensionContext?.inputItems as? [NSExtensionItem])?
-                .compactMap { $0.attributedContentText?.string }
-                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            if let text = text {
-                ExtensionLog.line("attributedContentText length=\(text.count)")
-                model.load(from: [NSItemProvider(object: text as NSString)], rules: rules)
-                return
-            }
-            model.load(from: [], rules: rules)
-            return
-        }
-
-        model.load(from: providers, rules: rules)
+        ExtensionLog.line(
+            "providers=\(providers.count) rules=\(rules.count) attributed=\(attributedText?.count ?? 0) quick=\(copiesImmediately)"
+        )
+        model.load(from: providers, attributedText: attributedText, rules: rules)
     }
 
     // MARK: Actions
 
-    /// Quick action: put the clean link on the clipboard, buzz, and get out of the way.
+    /// Quick action: put a clean link on the clipboard immediately, then optionally
+    /// upgrade it — no UI is involved at all.
     ///
-    /// No UI is involved at all. Text that contains no link is still copied unchanged
-    /// (there is simply nothing to strip).
-    private func finishQuickCopy() {
-        guard model.hasResult, !model.cleanedText.isEmpty else {
-            // Nothing to copy — close instead of leaving an empty system page up.
-            ExtensionLog.line("nothing to copy; completing")
-            completeRequest(reason: "nothing-to-copy")
+    /// The pasteboard write must not happen before the extension is actually presented:
+    /// a warm start resolves the payload in ~10 ms, and iOS then drops the write (and the
+    /// haptic), which looked exactly like "first share works, every following one doesn't"
+    /// (TECH-72). So the copy runs from `viewDidAppear`; a fallback covers hosts that
+    /// never present the extension view.
+    private func quickCopy(payload: String) {
+        whenVisible { [weak self] in self?.performQuickCopy(payload: payload) }
+    }
+
+    private func performQuickCopy(payload: String) {
+        let rules = quickRules
+
+        // ① Local pass — offline, must always produce something to copy.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, payload, rules] in
+            let local = UntrackService.untrack(text: payload, rules: rules, allowNetwork: false).output
+
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                guard !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    self.performQuickFail(reason: "local pass produced nothing")
+                    return
+                }
+                self.writeToClipboard(local)
+                self.feedback.notificationOccurred(.success)
+                ExtensionLog.line("quick copied(local) \(local.prefix(240))")
+
+                // ② Network upgrade — optional. Whatever happens here, ① stays on the
+                // clipboard, so a slow network can no longer cost the user the copy.
+                guard rules.contains(where: { $0.enabled && $0.requiresNetwork }) else {
+                    self.completeQuickCopy(reason: "quick-copy")
+                    return
+                }
+                self.upgradeInBackground(payload: payload, rules: rules, current: local)
+            }
+        }
+    }
+
+    /// Writes the pasteboard and proves whether the write registered, so a device log can
+    /// tell "we never copied" apart from "iOS dropped the write".
+    private func writeToClipboard(_ text: String) {
+        let pasteboard = UIPasteboard.general
+        let before = pasteboard.changeCount
+        pasteboard.string = text
+        let after = pasteboard.changeCount
+        if after > before {
+            ExtensionLog.line("pasteboard ok delta=\(after - before) len=\(text.count)")
+        } else {
+            ExtensionLog.line("pasteboard WRITE LOST before=\(before) after=\(after)")
+        }
+    }
+
+    private func upgradeInBackground(payload: String, rules: [Rule], current: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let upgraded = UntrackService.untrack(text: payload, rules: rules).output
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !upgraded.isEmpty, upgraded != current {
+                    self.writeToClipboard(upgraded)
+                    ExtensionLog.line("quick upgraded \(upgraded.prefix(240))")
+                } else {
+                    ExtensionLog.line("quick upgrade no change")
+                }
+                self.completeQuickCopy(reason: "quick-copy")
+            }
+        }
+    }
+
+    /// Failure must be perceptible: a silent close would leave the previous clipboard
+    /// content in place, which looks exactly like a successful copy (TECH-72).
+    private func quickFail(reason: String) {
+        ExtensionLog.line("quick failed reason=\(reason)")
+        whenVisible { [weak self] in self?.performQuickFail(reason: reason) }
+    }
+
+    private func performQuickFail(reason: String) {
+        feedback.notificationOccurred(.error)
+        completeQuickCopy(reason: "failed:\(reason)")
+    }
+
+    /// Runs `action` once the extension view has appeared — or after a short grace period
+    /// when the host never presents it, so the quick path still works headless.
+    private func whenVisible(_ action: @escaping () -> Void) {
+        if hasAppeared {
+            action()
             return
         }
-        UIPasteboard.general.string = model.cleanedText
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        ExtensionLog.line("copied")
-        // Complete immediately: by the time the system would draw the extension page the
-        // request is already finished, so the share sheet simply closes instead of showing
-        // an empty panel. If a host ignores the early completion, viewDidAppear retries it.
-        completeRequest(reason: "quick-copy")
-        pendingCompletion = true
+        pendingQuickAction = action
+        let fallback = DispatchWorkItem { [weak self] in
+            guard let self = self, let action = self.pendingQuickAction else { return }
+            self.pendingQuickAction = nil
+            ExtensionLog.line("quick: view never appeared, acting anyway")
+            action()
+        }
+        pendingQuickFallback = fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: fallback)
+    }
+
+    private func flushPendingQuickAction() {
+        guard let action = pendingQuickAction else { return }
+        pendingQuickAction = nil
+        pendingQuickFallback?.cancel()
+        pendingQuickFallback = nil
+        ExtensionLog.line("quick: view appeared after \(Int(Date().timeIntervalSince(loadedAt) * 1000))ms")
+        action()
+    }
+
+    private func completeQuickCopy(reason: String) {
+        // Small grace period: the pasteboard and the haptic are committed by other
+        // processes, and completing the request tears this process down.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self = self, !self.hasCompleted else { return }
+            self.completeRequest(reason: reason)
+            // If a host ignores the early completion, viewDidAppear retries it.
+            self.pendingCompletion = true
+        }
     }
 
     private func completeRequest(reason: String) {

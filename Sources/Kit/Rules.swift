@@ -22,6 +22,14 @@ struct Rule: Codable, Identifiable, Hashable {
     var script: String
     var enabled: Bool
 
+    /// `true` when the script performs network I/O through `$.fetch` (the upstream
+    /// `Common short links` rule that expands b23.tv / t.cn / …).
+    ///
+    /// The share extension's one-tap copy must put something on the clipboard even when
+    /// the network is slow, so it runs the local rules first and only applies these
+    /// afterwards, as an upgrade pass (TECH-72).
+    var requiresNetwork: Bool { script.contains("$.fetch") }
+
     init(id: String = UUID().uuidString, name: String = "", description: String = "", script: String = "", enabled: Bool = true) {
         self.id = id
         self.name = name
